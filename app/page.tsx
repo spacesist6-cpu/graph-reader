@@ -340,12 +340,16 @@ export default function Home() {
         if (session.studentCode && session.sessionId && session.startedAt) {
           const restoredResults = session.diagnosisResults ?? {};
           const restoredResultCount = Object.values(restoredResults).filter(Boolean).length;
+          const restoredPath = Object.keys(restoredResults).length === 5
+            ? assignPath(restoredResultCount)
+            : session.currentPath ?? null;
           if (process.env.NODE_ENV !== "production") {
             console.info("[diagnosis] localStorage session restored", {
               step: session.step ?? "start",
               diagnosisResultCount: restoredResultCount,
               diagnosisQuestionCount: Object.keys(restoredResults).length,
-              currentPath: session.currentPath ?? null,
+              storedPath: session.currentPath ?? null,
+              restoredPath,
             });
             if (session.step === "explore" && restoredResultCount < 5) {
               console.warn("[diagnosis] restored exploration state has fewer than 5 diagnosis results", {
@@ -364,7 +368,7 @@ export default function Home() {
           setDiagnosisResults(restoredResults);
           setResponseTimes(session.responseTimes ?? {});
           setShownAtByQuestion(session.shownAtByQuestion ?? {});
-          setCurrentPath(session.currentPath ?? null);
+          setCurrentPath(restoredPath);
           setAssignedAt(session.assignedAt ?? null);
           setExplorationResults(session.explorationResults ?? { A: [], B: [], C: [] });
           setExplorationFeedback(session.explorationFeedback ?? null);
@@ -403,10 +407,6 @@ export default function Home() {
     });
     return () => { cancelled = true; };
   }, [sessionHydrated, sessionId]);
-
-  useEffect(() => {
-    if (step === "explore" && currentPath && !explorationResults.A.length && !explorationResults.B.length && !explorationResults.C.length && currentPath !== "A") setCurrentPath("A");
-  }, [step, currentPath, explorationResults]);
 
   function getPersistedSession() {
     return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
