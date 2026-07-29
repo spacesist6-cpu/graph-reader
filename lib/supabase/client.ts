@@ -56,6 +56,17 @@ export type ExplorationResultsLoadResult = {
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
+export type FinalChallengeAttemptResult = {
+  ok: boolean;
+  message: string;
+  attemptId?: string;
+  isCorrect?: boolean;
+  attemptNumber?: number;
+  completedAt?: string;
+  feedback?: string;
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 export const supabase: SupabaseClient | null = isSupabaseConfigured ? createClient(supabaseUrl, supabasePublishableKey) : null;
 
@@ -115,6 +126,33 @@ export async function loadExplorationResults(sessionId: string): Promise<Explora
     return await response.json() as ExplorationResultsLoadResult;
   } catch (error) {
     return { ok: false, message: "탐구 결과를 불러오지 못했습니다.", error: { message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+export async function saveFinalChallengeAttempt(input: {
+  sessionId: string;
+  questionId: string;
+  questionFormula: string;
+  questionParameters: Record<string, unknown>;
+  selectedChoiceId: string;
+  selectedFormula: string;
+  isCorrect: boolean;
+  feedback: string;
+}): Promise<FinalChallengeAttemptResult> {
+  try {
+    const response = await fetch("/api/final-challenge", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    return await response.json() as FinalChallengeAttemptResult;
+  } catch (error) {
+    return {
+      ok: false,
+      message: "최종 미션 답안을 저장하지 못했습니다.",
+      error: { message: error instanceof Error ? error.message : String(error) },
+    };
   }
 }
 

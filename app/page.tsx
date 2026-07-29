@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkSupabaseConnection, loadExplorationResults, saveDiagnosisResponse, saveExplorationFeedback, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
+import { checkSupabaseConnection, loadExplorationResults, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
 
 type Step = "start" | "diagnosis" | "explore" | "feedback" | "challenge" | "complete";
 
@@ -345,6 +345,46 @@ export default function Home() {
     return result;
   };
 
+  const submitFinalChallenge = async (choice: GraphChoice) => {
+    const feedback = choice.isCorrect
+      ? "정확합니다. a, b, c의 값과 그래프의 방향, 폭, 꼭짓점, y절편을 올바르게 연결했습니다."
+      : choice.errorType === "direction"
+        ? "a의 부호를 다시 확인해보세요."
+        : choice.errorType === "width"
+          ? "|a|의 크기가 그래프의 폭에 어떤 영향을 주는지 살펴보세요."
+          : choice.errorType === "vertex"
+            ? "꼭짓점 (1, -1)과 대칭축 x=1을 확인해보세요."
+            : "x=0을 대입했을 때 y값이 얼마인지 확인해보세요.";
+    const result = await saveFinalChallengeAttempt({
+      sessionId,
+      questionId: finalQuestion.id,
+      questionFormula: finalQuestion.formula,
+      questionParameters: {
+        a: finalQuestion.coefficients.a,
+        b: finalQuestion.coefficients.b,
+        c: finalQuestion.coefficients.c,
+        vertex: finalQuestion.vertex,
+        axis: finalQuestion.axis,
+        yIntercept: finalQuestion.yIntercept,
+      },
+      selectedChoiceId: choice.id,
+      selectedFormula: choice.formula,
+      isCorrect: choice.isCorrect,
+      feedback,
+    });
+    if (result.ok) {
+      setFinalChoiceId(choice.id);
+      setFinalFeedback(feedback);
+      setFinalAttempts(result.attemptNumber ?? finalAttempts + 1);
+      setChallengeDone(choice.isCorrect);
+      if (choice.isCorrect) {
+        setCompletedAt(result.completedAt ?? new Date().toISOString());
+        setStep("complete");
+      }
+    }
+    return result;
+  };
+
   const goNext = () => {
     if (step === "start") setStep("diagnosis");
     else if (step === "diagnosis") setStep("explore");
@@ -377,7 +417,7 @@ export default function Home() {
         {step === "diagnosis" && <DiagnosisScreen index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
         {step === "feedback" && <ExplorationFeedbackScreen records={explorationResults[currentPath ?? "A"]} feedback={explorationFeedback} onNext={goNext} />}
-        {step === "challenge" && <ChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); if (choice.isCorrect) { setChallengeDone(true); setFinalFeedback("정확합니다. a, b, c의 값을 그래프의 방향, 폭, 꼭짓점, y절편과 연결해 해석했습니다."); } else { setChallengeDone(false); const feedback = choice.errorType === "direction" ? "a의 부호를 다시 확인해보세요." : choice.errorType === "width" ? "|a|의 크기가 그래프의 폭에 어떤 영향을 주는지 살펴보세요." : choice.errorType === "vertex" ? "대칭축 x=1과 꼭짓점 (1,-1)을 확인해보세요." : "x=0일 때 y의 값을 계산해보세요."; setFinalFeedback(feedback); } }} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); setFinalAttempts((current) => current + 1); }} onNext={goNext} />}
+        {step === "challenge" && <FinalChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
         {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
       </section>
 
@@ -627,6 +667,23 @@ function FunctionGraph({ choice }: { choice: GraphChoice }) {
   const toY = (y: number) => 92 - ((y + 12) / 24) * 80;
   const path = points.map(([x, y], index) => `${index === 0 ? "M" : "L"}${toX(x).toFixed(1)},${toY(y).toFixed(1)}`).join(" ");
   return <svg className="function-graph" viewBox="0 0 200 104" role="img" aria-label={`${choice.formula} 그래프`}><line x1="12" y1={toY(0)} x2="188" y2={toY(0)} className="function-axis" /><line x1={toX(0)} y1="8" x2={toX(0)} y2="92" className="function-axis" /><path d={path} className="function-curve" /></svg>;
+}
+
+function FinalChallengeScreen({ selected, feedback, attempts, done, onSelect, onSubmit, onRetry }: { selected: string | null; feedback: string | null; attempts: number; done: boolean; onSelect: (choice: GraphChoice) => void; onSubmit: (choice: GraphChoice) => Promise<{ ok: boolean; message: string; error?: { message?: string; code?: string; details?: string; hint?: string }; attemptNumber?: number; feedback?: string }>; onRetry: () => void }) {
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const selectedChoice = finalQuestion.graphChoices.find((choice) => choice.id === selected);
+
+  const submit = async () => {
+    if (!selectedChoice || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    const result = await onSubmit(selectedChoice);
+    if (!result.ok) setSubmitError(result.error?.message ?? result.message);
+    setSubmitting(false);
+  };
+
+  return <div className="question-page"><div className="section-intro"><span className="eyebrow">03 · 최종 미션</span><h2>그래프의 특징을 연결해볼까요?</h2><p>다음 이차함수의 그래프에 해당하는 것을 고르시오.</p><div className="final-formula">{finalQuestion.formula}</div></div><div className="final-choices">{finalQuestion.graphChoices.map((choice) => <button type="button" key={choice.id} className={`final-choice ${selected === choice.id ? "selected" : ""} ${selected === choice.id && done ? "correct" : ""}`} disabled={submitting} onClick={() => { setSubmitError(null); onSelect(choice); }}><FunctionGraph choice={choice} /><strong>그래프 {choice.id.replace("choice-", "")}</strong></button>)}</div><button type="button" className="primary-button final-submit-button" disabled={!selectedChoice || submitting} onClick={() => void submit()}>{submitting ? "제출 중..." : "제출하기"} <span>→</span></button>{submitError && <div className="final-feedback error" role="alert">{submitError}</div>}{feedback && <div className={`final-feedback ${done ? "success" : "error"}`} role="status">{feedback}</div>}{feedback && !done && <button type="button" className="secondary-button retry-button" onClick={() => { setSubmitError(null); onRetry(); }}>다시 도전하기</button>}<small className="attempt-count final-attempt-count">시도 횟수: {attempts}회</small></div>;
 }
 
 function ChallengeScreen({ selected, feedback, attempts, done, onSelect, onRetry, onNext }: { selected: string | null; feedback: string | null; attempts: number; done: boolean; onSelect: (choice: GraphChoice) => void; onRetry: () => void; onNext: () => void }) {
