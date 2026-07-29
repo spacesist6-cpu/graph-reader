@@ -21,6 +21,13 @@ function parseFeedback(value: unknown): Feedback | null {
   };
 }
 
+function parseCoefficientSnapshot(value: unknown): CoefficientSnapshot | null {
+  if (!value || typeof value !== "object") return null;
+  const item = value as Partial<CoefficientSnapshot>;
+  if (!Number.isFinite(item.a) || !Number.isFinite(item.b) || !Number.isFinite(item.c)) return null;
+  return { a: item.a, b: item.b, c: item.c };
+}
+
 async function createGeminiFeedback(apiKey: string, input: { path: string; studentResponse: string; coefficientSnapshot: CoefficientSnapshot }) {
   const prompt = `중학교 3학년 이차함수 탐구 답변에 짧고 친절한 피드백을 작성하세요. 반드시 JSON만 반환하세요. 형식: {"strengths":[""],"improvements":[""],"nextQuestion":"","hint":""}. 탐구 단계: ${input.path}. 조절한 계수: a=${input.coefficientSnapshot.a}, b=${input.coefficientSnapshot.b}, c=${input.coefficientSnapshot.c}. 학생 답변: ${input.studentResponse}`;
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${encodeURIComponent(apiKey)}`, {
@@ -33,6 +40,63 @@ async function createGeminiFeedback(apiKey: string, input: { path: string; stude
   const data = await response.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
   return text ? parseFeedback(JSON.parse(text)) : null;
+}
+
+export async function GET(request: Request) {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  const sessionId = new URL(request.url).searchParams.get("sessionId")?.trim();
+
+  if (!url || !key || !sessionId) {
+    return Response.json({ ok: false, message: "탐구 결과를 불러올 세션 정보가 없습니다.", error: { message: "sessionId가 필요합니다.", code: "INVALID_INPUT" } }, { status: 400 });
+  }
+
+  try {
+    const response = await fetch(`${url}/rest/v1/rpc/get_exploration_results`, {
+      method: "POST",
+      headers: { apikey: key, Authorization: `Bearer ${key}`, "content-type": "application/json" },
+      body: JSON.stringify({ p_session_id: sessionId }),
+      cache: "no-store",
+    });
+    const responseText = await response.text();
+    if (!response.ok) {
+      let error: ErrorInfo = { message: responseText || response.statusText, code: String(response.status) };
+      try { error = { ...error, ...(JSON.parse(responseText) as ErrorInfo) }; } catch { /* keep response text */ }
+      return Response.json({ ok: false, message: "탐구 결과를 불러오지 못했습니다.", error }, { status: 502 });
+    }
+
+    const rows = JSON.parse(responseText) as Array<{
+      id: string;
+      session_id: string;
+      path: "A" | "B" | "C";
+      prompt_id: string;
+      response_text: string;
+      coefficient_snapshot: unknown;
+      ai_feedback: unknown;
+      feedback_status: string | null;
+      feedback_created_at: string | null;
+    }>;
+    const results = rows.flatMap((row) => {
+      const coefficientSnapshot = parseCoefficientSnapshot(row.coefficient_snapshot);
+      if (!row.id || !row.session_id || !row.path || !row.prompt_id || typeof row.response_text !== "string" || !coefficientSnapshot) return [];
+      return [{
+        id: row.id,
+        sessionId: row.session_id,
+        path: row.path,
+        promptId: row.prompt_id,
+        responseText: row.response_text,
+        coefficientSnapshot,
+        feedback: parseFeedback(row.ai_feedback),
+        feedbackStatus: row.feedback_status,
+        writtenAt: row.feedback_created_at ?? "",
+      }];
+    });
+    return Response.json({ ok: true, message: results.length ? "탐구 결과를 불러왔습니다." : "아직 저장된 탐구 결과가 없습니다.", results });
+  } catch (error) {
+    const info = { message: error instanceof Error ? error.message : String(error) };
+    console.error("[exploration-feedback] Load failed", info);
+    return Response.json({ ok: false, message: "탐구 결과를 불러오지 못했습니다.", error: info }, { status: 502 });
+  }
 }
 
 export async function POST(request: Request) {

@@ -37,6 +37,25 @@ export type ExplorationFeedbackResult = {
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
+export type SavedExplorationResult = {
+  id: string;
+  sessionId: string;
+  path: "A" | "B" | "C";
+  promptId: string;
+  responseText: string;
+  coefficientSnapshot: { a: number; b: number; c: number };
+  feedback: ExplorationFeedback | null;
+  feedbackStatus: string | null;
+  writtenAt: string;
+};
+
+export type ExplorationResultsLoadResult = {
+  ok: boolean;
+  message: string;
+  results?: SavedExplorationResult[];
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 export const supabase: SupabaseClient | null = isSupabaseConfigured ? createClient(supabaseUrl, supabasePublishableKey) : null;
 
@@ -87,6 +106,15 @@ export async function saveDiagnosisResponse(input: {
       message: "진단 응답을 저장하지 못했습니다.",
       error: { message: error instanceof Error ? error.message : String(error) },
     };
+  }
+}
+
+export async function loadExplorationResults(sessionId: string): Promise<ExplorationResultsLoadResult> {
+  try {
+    const response = await fetch(`/api/exploration-feedback?sessionId=${encodeURIComponent(sessionId)}`, { cache: "no-store" });
+    return await response.json() as ExplorationResultsLoadResult;
+  } catch (error) {
+    return { ok: false, message: "탐구 결과를 불러오지 못했습니다.", error: { message: error instanceof Error ? error.message : String(error) } };
   }
 }
 

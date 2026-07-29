@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkSupabaseConnection, saveDiagnosisResponse, saveExplorationFeedback, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
+import { checkSupabaseConnection, loadExplorationResults, saveDiagnosisResponse, saveExplorationFeedback, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
 
 type Step = "start" | "diagnosis" | "explore" | "feedback" | "challenge" | "complete";
 
@@ -291,6 +291,22 @@ export default function Home() {
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(getPersistedSession()));
   }, [sessionHydrated, studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone]);
 
+  useEffect(() => {
+    if (!sessionHydrated || !sessionId) return;
+    let cancelled = false;
+    void loadExplorationResults(sessionId).then((result) => {
+      if (cancelled || !result.ok || !result.results) return;
+      const grouped: Record<PathId, ExplorationRecord[]> = { A: [], B: [], C: [] };
+      for (const item of result.results) {
+        grouped[item.path].push({ path: item.path, promptId: item.promptId, responseText: item.responseText, coefficientSnapshot: item.coefficientSnapshot, writtenAt: item.writtenAt });
+      }
+      const latest = result.results[0];
+      setExplorationResults(grouped);
+      setExplorationFeedback(latest?.feedback ?? null);
+    });
+    return () => { cancelled = true; };
+  }, [sessionHydrated, sessionId]);
+
   function getPersistedSession() {
     return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
   }
@@ -578,6 +594,7 @@ function ExploreScreen({ selected, savedResults, onSave }: { selected: PathId; s
 
 function ExplorationFeedbackScreen({ records, feedback, onNext }: { records: ExplorationRecord[]; feedback: ExplorationFeedback | null; onNext: () => void }) {
   const latest = records[records.length - 1];
+  if (!latest) return <div className="question-page exploration-feedback-page"><div className="section-intro"><span className="eyebrow">탐구 결과 피드백</span><h2>탐구 결과를 확인해보세요.</h2><p>아직 저장된 탐구 결과가 없습니다.</p></div><div className="feedback-empty" role="status"><strong>탐구 답변이 아직 없어요.</strong><p>탐구 답변을 작성하고 저장하면 학생 답변과 계수별 피드백이 여기에 표시됩니다.</p></div><button className="primary-button" onClick={onNext}>최종 미션 도전하기 <span>→</span></button></div>;
   const safeFeedback = feedback ?? { strengths: ["작성한 내용을 확인했습니다."], improvements: ["그래프의 특징과 계수의 관계를 다시 연결해보세요."], nextQuestion: "계수를 바꾸면 그래프의 어떤 특징이 달라졌나요?", hint: "식의 a, b, c를 그래프의 방향, 폭, 꼭짓점, 대칭축, y절편과 연결해보세요." };
   return <div className="question-page exploration-feedback-page"><div className="section-intro"><span className="eyebrow">탐구 결과 피드백</span><h2>탐구 결과를 돌아봅시다</h2><p>작성한 내용을 다시 읽고, 그래프에서 발견한 관계를 확인해보세요.</p></div><div className="feedback-card-list">{latest && <article className="feedback-card"><span className="eyebrow">{latest.path === "A" ? "첫 번째 탐구" : latest.path === "B" ? "두 번째 탐구" : "세 번째 탐구"}</span><h3>탐구 질문</h3><p>{explorationPrompts[latest.path].question}</p><h3>작성한 답변</h3><p className="student-response">{latest.responseText}</p><p className="coefficient-snapshot">현재 계수 · a={latest.coefficientSnapshot.a}, b={latest.coefficientSnapshot.b}, c={latest.coefficientSnapshot.c}</p><h3>잘 발견한 점</h3><ul>{safeFeedback.strengths.map((item) => <li key={item}>{item}</li>)}</ul><h3>보완할 점</h3><ul>{safeFeedback.improvements.map((item) => <li key={item}>{item}</li>)}</ul><h3>다시 생각해볼 질문</h3><p>{safeFeedback.nextQuestion}</p><h3>다음 미션을 위한 힌트</h3><p>{safeFeedback.hint}</p></article>}</div><button className="primary-button" onClick={onNext}>최종 미션 도전하기 <span>→</span></button></div>;
 }

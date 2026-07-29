@@ -114,6 +114,42 @@ grant execute on function public.record_exploration_result(
   uuid, text, text, text, jsonb, jsonb, text
 ) to anon, authenticated;
 
+create or replace function public.get_exploration_results(
+  p_session_id uuid
+)
+returns table (
+  id uuid,
+  session_id uuid,
+  path text,
+  prompt_id text,
+  response_text text,
+  coefficient_snapshot jsonb,
+  ai_feedback jsonb,
+  feedback_status text,
+  feedback_created_at timestamptz
+)
+language sql
+security definer
+set search_path = ''
+as $$
+  select
+    er.id,
+    er.session_id,
+    er.path,
+    er.prompt_id,
+    er.response_text,
+    er.coefficient_snapshot,
+    er.ai_feedback,
+    er.feedback_status,
+    er.feedback_created_at
+  from public.exploration_results as er
+  where er.session_id = p_session_id
+  order by er.feedback_created_at desc nulls last;
+$$;
+
+revoke all on function public.get_exploration_results(uuid) from public;
+grant execute on function public.get_exploration_results(uuid) to anon, authenticated;
+
 -- 실행 후 새 시그니처가 등록되었는지 확인합니다.
 select
   n.nspname as schema_name,
