@@ -32,12 +32,22 @@ const query = async <T>(promise: PromiseLike<{ data: T | null; error: { message:
 
 export async function loadTeacherData(client: SupabaseClient, sessionId?: string): Promise<TeacherData> {
   const sessionsQuery = client.from("learning_sessions").select("id, student_id, student_code, started_at, status, completed_at").order("started_at", { ascending: false });
+  const diagnosesQuery = client.from("diagnosis_responses").select("id, session_id, question_id, question_order, question_version, question_parameters, answer, is_correct, shown_at, submitted_at, response_time_ms").order("submitted_at", { ascending: true });
+  const checkpointsQuery = client.from("checkpoint_attempts").select("id, session_id, path, question_id, question_version, question_parameters, student_answer, is_correct, response_time_ms, attempt_number, submitted_at").order("submitted_at", { ascending: true });
+  const explorationsQuery = client.from("exploration_results").select("id, session_id, path, prompt_id, response_text, coefficient_snapshot, ai_feedback, feedback_status, feedback_created_at").order("feedback_created_at", { ascending: true });
+  const finalAttemptsQuery = client.from("final_challenge_attempts").select("id, session_id, question_id, question_formula, question_parameters, selected_choice_id, selected_formula, is_correct, attempt_number, feedback, submitted_at").order("submitted_at", { ascending: true });
+  if (sessionId) {
+    diagnosesQuery.eq("session_id", sessionId);
+    checkpointsQuery.eq("session_id", sessionId);
+    explorationsQuery.eq("session_id", sessionId);
+    finalAttemptsQuery.eq("session_id", sessionId);
+  }
   const [sessions, diagnoses, checkpoints, explorations, finalAttempts] = await Promise.all([
     query<TeacherSession[]>(sessionId ? sessionsQuery.eq("id", sessionId) : sessionsQuery),
-    query<TeacherDiagnosis[]>(client.from("diagnosis_responses").select("id, session_id, question_id, question_order, question_version, question_parameters, answer, is_correct, shown_at, submitted_at, response_time_ms").order("submitted_at", { ascending: true })),
-    query<TeacherCheckpoint[]>(client.from("checkpoint_attempts").select("id, session_id, path, question_id, question_version, question_parameters, student_answer, is_correct, response_time_ms, attempt_number, submitted_at").order("submitted_at", { ascending: true })),
-    query<TeacherExploration[]>(client.from("exploration_results").select("id, session_id, path, prompt_id, response_text, coefficient_snapshot, ai_feedback, feedback_status, feedback_created_at").order("feedback_created_at", { ascending: true })),
-    query<TeacherFinalAttempt[]>(client.from("final_challenge_attempts").select("id, session_id, question_id, question_formula, question_parameters, selected_choice_id, selected_formula, is_correct, attempt_number, feedback, submitted_at").order("submitted_at", { ascending: true })),
+    query<TeacherDiagnosis[]>(diagnosesQuery),
+    query<TeacherCheckpoint[]>(checkpointsQuery),
+    query<TeacherExploration[]>(explorationsQuery),
+    query<TeacherFinalAttempt[]>(finalAttemptsQuery),
   ]);
   return { sessions, diagnoses, checkpoints, explorations, finalAttempts };
 }
