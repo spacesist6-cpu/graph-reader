@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkSupabaseConnection, saveDiagnosisResponse, startLearningSession } from "../lib/supabase/client";
+import { checkSupabaseConnection, saveDiagnosisResponse, saveExplorationFeedback, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
 
-type Step = "start" | "diagnosis" | "explore" | "challenge" | "complete";
+type Step = "start" | "diagnosis" | "explore" | "feedback" | "challenge" | "complete";
 
 const graphOptions = [
   { id: "A", title: "A 그래프", formula: "y = x²", note: "위로 열리고 꼭짓점은 (0, 0)" },
@@ -246,6 +246,7 @@ export default function Home() {
   const [currentPath, setCurrentPath] = useState<PathId | null>(null);
   const [assignedAt, setAssignedAt] = useState<string | null>(null);
   const [explorationResults, setExplorationResults] = useState<Record<PathId, ExplorationRecord[]>>({ A: [], B: [], C: [] });
+  const [explorationFeedback, setExplorationFeedback] = useState<ExplorationFeedback | null>(null);
   const [finalChoiceId, setFinalChoiceId] = useState<string | null>(null);
   const [finalFeedback, setFinalFeedback] = useState<string | null>(null);
   const [finalAttempts, setFinalAttempts] = useState(0);
@@ -271,6 +272,7 @@ export default function Home() {
           setCurrentPath(session.currentPath ?? null);
           setAssignedAt(session.assignedAt ?? null);
           setExplorationResults(session.explorationResults ?? { A: [], B: [], C: [] });
+          setExplorationFeedback(session.explorationFeedback ?? null);
           setFinalChoiceId(session.finalChoiceId ?? null);
           setFinalFeedback(session.finalFeedback ?? null);
           setFinalAttempts(session.finalAttempts ?? 0);
@@ -287,10 +289,10 @@ export default function Home() {
   useEffect(() => {
     if (!sessionHydrated || !studentCode || !sessionId || !startedAt) return;
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(getPersistedSession()));
-  }, [sessionHydrated, studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, finalChoiceId, finalFeedback, finalAttempts, challengeDone]);
+  }, [sessionHydrated, studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone]);
 
   function getPersistedSession() {
-    return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
+    return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
   }
 
   const startSession = async (value: string) => {
@@ -308,14 +310,29 @@ export default function Home() {
   };
 
   const progress = useMemo(
-    () => ({ start: 0, diagnosis: 25, explore: 50, challenge: 75, complete: 100 })[step],
+    () => ({ start: 0, diagnosis: 25, explore: 50, feedback: 65, challenge: 80, complete: 100 })[step],
     [step],
   );
+
+  const saveExploration = async (record: ExplorationRecord) => {
+    const coreConcept = record.path === "A" ? "a의 부호와 절댓값, 개방 방향과 그래프의 폭" : record.path === "B" ? "a와 b, 꼭짓점과 대칭축" : "a, b, c와 개방 방향, 폭, 꼭짓점, 대칭축, y절편";
+    const snapshot = record.coefficientSnapshot;
+    if (!snapshot || !Number.isFinite(snapshot.a) || !Number.isFinite(snapshot.b) || !Number.isFinite(snapshot.c)) {
+      return { ok: false, message: "탐구 결과를 저장하지 못했습니다.", error: { message: "현재 GeoGebra 계수값(coefficientSnapshot)이 없어 저장할 수 없습니다.", code: "INVALID_INPUT" } };
+    }
+    const result = await saveExplorationFeedback({ sessionId, path: record.path, promptId: record.promptId, studentResponse: record.responseText, coefficientSnapshot: { a: snapshot.a, b: snapshot.b, c: snapshot.c } });
+    if (result.ok && result.feedback) {
+      setExplorationResults((current) => ({ ...current, [record.path]: [...current[record.path], record] }));
+      setExplorationFeedback(result.feedback);
+      setStep("feedback");
+    }
+    return result;
+  };
 
   const goNext = () => {
     if (step === "start") setStep("diagnosis");
     else if (step === "diagnosis") setStep("explore");
-    else if (step === "explore") setStep("challenge");
+    else if (step === "feedback") setStep("challenge");
     else if (step === "challenge" && challengeDone) { setCompletedAt(new Date().toISOString()); setStep("complete"); }
   };
 
@@ -342,9 +359,10 @@ export default function Home() {
       <section className="content">
         {step === "start" && <StudentCodeStartScreenV2 onStart={startSession} />}
         {step === "diagnosis" && <DiagnosisScreen index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
-        {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={(record) => setExplorationResults((current) => ({ ...current, [record.path]: [...current[record.path], record] }))} onNext={goNext} />}
+        {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
+        {step === "feedback" && <ExplorationFeedbackScreen records={explorationResults[currentPath ?? "A"]} feedback={explorationFeedback} onNext={goNext} />}
         {step === "challenge" && <ChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); if (choice.isCorrect) { setChallengeDone(true); setFinalFeedback("정확합니다. a, b, c의 값을 그래프의 방향, 폭, 꼭짓점, y절편과 연결해 해석했습니다."); } else { setChallengeDone(false); const feedback = choice.errorType === "direction" ? "a의 부호를 다시 확인해보세요." : choice.errorType === "width" ? "|a|의 크기가 그래프의 폭에 어떤 영향을 주는지 살펴보세요." : choice.errorType === "vertex" ? "대칭축 x=1과 꼭짓점 (1,-1)을 확인해보세요." : "x=0일 때 y의 값을 계산해보세요."; setFinalFeedback(feedback); } }} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); setFinalAttempts((current) => current + 1); }} onNext={goNext} />}
-        {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
+        {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
       </section>
 
       <footer>학습 기록은 현재 이 브라우저에서만 임시로 유지됩니다 · 저장 기능은 다음 단계에서 연결할 예정이에요.</footer>
@@ -520,30 +538,48 @@ function DiagnosisLegacyScreen({ value, onSelect, onNext }: { value: string | nu
   );
 }
 
-function ExploreScreen({ selected, savedResults, onSave, onNext }: { selected: PathId; savedResults: ExplorationRecord[]; onSave: (record: ExplorationRecord) => void; onNext: () => void }) {
+function ExploreScreen({ selected, savedResults, onSave }: { selected: PathId; savedResults: ExplorationRecord[]; onSave: (record: ExplorationRecord) => Promise<{ ok: boolean; message: string; error?: { message?: string; code?: string; details?: string; hint?: string }; feedback?: ExplorationFeedback }>; }) {
   const [lastCoefficientChange, setLastCoefficientChange] = useState<CoefficientChange | null>(null);
   const prompt = explorationPrompts[selected];
   const latest = savedResults[savedResults.length - 1];
   const [responseText, setResponseText] = useState(latest?.responseText ?? "");
   const [saved, setSaved] = useState(false);
-  const snapshot = lastCoefficientChange ?? { ...pathDefaults[selected], path: selected, changedAt: new Date().toISOString() };
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const currentA = lastCoefficientChange?.a ?? pathDefaults[selected].a;
+  const currentB = lastCoefficientChange?.b ?? pathDefaults[selected].b;
+  const currentC = lastCoefficientChange?.c ?? pathDefaults[selected].c;
 
   useEffect(() => { setResponseText(latest?.responseText ?? ""); setSaved(false); }, [selected]);
 
-  const saveResponse = () => {
+  const saveResponse = async () => {
     if (responseText.trim().length < 20) return;
-    onSave({ path: selected, promptId: prompt.promptId, responseText: responseText.trim(), coefficientSnapshot: { a: snapshot.a, b: snapshot.b, c: snapshot.c }, writtenAt: new Date().toISOString() });
-    setSaved(true);
+    if (saving) return;
+    if (![currentA, currentB, currentC].every(Number.isFinite)) {
+      setSaveError("현재 GeoGebra 계수값이 없어 저장할 수 없습니다.");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    const result = await onSave({ path: selected, promptId: prompt.promptId, responseText: responseText.trim(), coefficientSnapshot: { a: currentA, b: currentB, c: currentC }, writtenAt: new Date().toISOString() });
+    if (!result.ok) setSaveError(result.error?.message ?? result.message);
+    else setSaved(true);
+    setSaving(false);
   };
 
   return (
     <div className="question-page">
       <div className="section-intro row-intro"><div><span className="eyebrow">02 · 그래프 탐색</span><h2>계수를 움직이며 그래프의 변화를 관찰해보세요.</h2><p>표시된 계수 슬라이더를 조절하고 포물선의 변화를 살펴보세요.</p></div><span className="hint-pill">실험 <b>↗</b></span></div>
       <div className="explore-layout"><div><GeoGebraGraph path={selected} onCoefficientChange={(change) => { setLastCoefficientChange(change); setSaved(false); }} /><span className="sr-only">최근 계수 변경 {lastCoefficientChange?.changedAt ?? "없음"}</span></div><div className="observation"><span>◒</span><p><strong>관찰 포인트</strong><br />계수가 바뀌면 포물선의 모양과 위치가 어떻게 달라지는지 확인해보세요.</p></div></div>
-      <div className="exploration-response"><span className="eyebrow">탐구 결과 작성</span><h3>{prompt.question}</h3><p>{prompt.support}</p><textarea value={responseText} onChange={(event) => { setResponseText(event.target.value); setSaved(false); }} placeholder="관찰한 내용을 자신의 말로 작성해보세요." rows={6} aria-label="탐구 결과 작성" /><div className="response-meta"><span>{responseText.length}자 · 최소 20자</span><span>작성 횟수: {savedResults.length}</span></div><button className="primary-button" disabled={responseText.trim().length < 20} onClick={saveResponse}>탐구 결과 저장 <span>→</span></button>{saved && <p className="response-saved" role="status">관찰한 내용을 저장했습니다. 다음 탐구로 이동합니다.</p>}</div>
-      <button className="primary-button" disabled={!saved} onClick={onNext}>다음 단계로 이동 <span>→</span></button>
+      <div className="exploration-response"><span className="eyebrow">탐구 결과 작성</span><h3>{prompt.question}</h3><p>{prompt.support}</p><textarea value={responseText} onChange={(event) => { setResponseText(event.target.value); setSaved(false); setSaveError(null); }} placeholder="관찰한 내용을 자신의 말로 작성해보세요." rows={6} aria-label="탐구 결과 작성" /><div className="response-meta"><span>{responseText.length}자 · 최소 20자</span><span>작성 횟수: {savedResults.length}</span></div><button className="primary-button" disabled={responseText.trim().length < 20 || saving} onClick={() => void saveResponse()}>{saving ? "저장하고 분석 중..." : "탐구 결과 저장"} <span>→</span></button>{saveError && <p className="supabase-error" role="alert">{saveError}</p>}{saved && <p className="response-saved" role="status">탐구 결과를 저장했습니다. 피드백 화면으로 이동합니다.</p>}</div>
     </div>
   );
+}
+
+function ExplorationFeedbackScreen({ records, feedback, onNext }: { records: ExplorationRecord[]; feedback: ExplorationFeedback | null; onNext: () => void }) {
+  const latest = records[records.length - 1];
+  const safeFeedback = feedback ?? { strengths: ["작성한 내용을 확인했습니다."], improvements: ["그래프의 특징과 계수의 관계를 다시 연결해보세요."], nextQuestion: "계수를 바꾸면 그래프의 어떤 특징이 달라졌나요?", hint: "식의 a, b, c를 그래프의 방향, 폭, 꼭짓점, 대칭축, y절편과 연결해보세요." };
+  return <div className="question-page exploration-feedback-page"><div className="section-intro"><span className="eyebrow">탐구 결과 피드백</span><h2>탐구 결과를 돌아봅시다</h2><p>작성한 내용을 다시 읽고, 그래프에서 발견한 관계를 확인해보세요.</p></div><div className="feedback-card-list">{latest && <article className="feedback-card"><span className="eyebrow">{latest.path === "A" ? "첫 번째 탐구" : latest.path === "B" ? "두 번째 탐구" : "세 번째 탐구"}</span><h3>탐구 질문</h3><p>{explorationPrompts[latest.path].question}</p><h3>작성한 답변</h3><p className="student-response">{latest.responseText}</p><p className="coefficient-snapshot">현재 계수 · a={latest.coefficientSnapshot.a}, b={latest.coefficientSnapshot.b}, c={latest.coefficientSnapshot.c}</p><h3>잘 발견한 점</h3><ul>{safeFeedback.strengths.map((item) => <li key={item}>{item}</li>)}</ul><h3>보완할 점</h3><ul>{safeFeedback.improvements.map((item) => <li key={item}>{item}</li>)}</ul><h3>다시 생각해볼 질문</h3><p>{safeFeedback.nextQuestion}</p><h3>다음 미션을 위한 힌트</h3><p>{safeFeedback.hint}</p></article>}</div><button className="primary-button" onClick={onNext}>최종 미션 도전하기 <span>→</span></button></div>;
 }
 
 function ExploreLegacyScreenV2({ selected, onSelect, onNext }: { selected: string; onSelect: (v: string) => void; onNext: () => void }) {

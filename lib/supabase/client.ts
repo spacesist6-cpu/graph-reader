@@ -23,6 +23,20 @@ export type DiagnosisResponseSaveResult = {
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
+export type ExplorationFeedback = {
+  strengths: string[];
+  improvements: string[];
+  nextQuestion: string;
+  hint: string;
+};
+
+export type ExplorationFeedbackResult = {
+  ok: boolean;
+  message: string;
+  feedback?: ExplorationFeedback;
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 export const supabase: SupabaseClient | null = isSupabaseConfigured ? createClient(supabaseUrl, supabasePublishableKey) : null;
 
@@ -73,5 +87,27 @@ export async function saveDiagnosisResponse(input: {
       message: "진단 응답을 저장하지 못했습니다.",
       error: { message: error instanceof Error ? error.message : String(error) },
     };
+  }
+}
+
+export async function saveExplorationFeedback(input: {
+  sessionId: string;
+  path: "A" | "B" | "C";
+  promptId: string;
+  studentResponse: string;
+  coefficientSnapshot: { a: number; b: number; c: number };
+  aiFeedback?: ExplorationFeedback;
+  feedbackStatus?: string;
+}): Promise<ExplorationFeedbackResult> {
+  try {
+    const response = await fetch("/api/exploration-feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    return await response.json() as ExplorationFeedbackResult;
+  } catch (error) {
+    return { ok: false, message: "탐구 결과를 저장하지 못했습니다.", error: { message: error instanceof Error ? error.message : String(error) } };
   }
 }
