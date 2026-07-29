@@ -125,6 +125,8 @@ export async function startLearningSession(studentCode: string): Promise<Learnin
 export async function saveDiagnosisResponse(input: {
   sessionId: string;
   questionId: string;
+  questionVersion: string;
+  questionParameters: Record<string, number>;
   answer: string;
   isCorrect: boolean;
   shownAt: string;

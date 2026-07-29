@@ -1,4 +1,12 @@
 -- 실행 전 실제 열 이름을 먼저 확인하세요.
+alter table public.diagnosis_responses
+  add column if not exists question_version text,
+  add column if not exists question_parameters jsonb;
+
+drop function if exists public.record_diagnosis_response(
+  uuid, text, text, boolean, timestamptz, timestamptz, integer
+);
+
 select column_name, data_type, is_nullable
 from information_schema.columns
 where table_schema = 'public' and table_name = 'diagnosis_responses'
@@ -10,6 +18,8 @@ on public.diagnosis_responses (session_id, question_id);
 create or replace function public.record_diagnosis_response(
   p_session_id uuid,
   p_question_id text,
+  p_question_version text,
+  p_question_parameters jsonb,
   p_answer text,
   p_is_correct boolean,
   p_shown_at timestamptz,
@@ -58,6 +68,8 @@ begin
   if existing_id is not null then
     update public.diagnosis_responses as dr
     set question_order = question_order_value,
+        question_version = p_question_version,
+        question_parameters = p_question_parameters,
         answer = p_answer,
         is_correct = p_is_correct,
         shown_at = p_shown_at,
@@ -70,6 +82,8 @@ begin
       session_id,
       question_id,
       question_order,
+      question_version,
+      question_parameters,
       answer,
       is_correct,
       shown_at,
@@ -79,6 +93,8 @@ begin
       p_session_id,
       p_question_id,
       question_order_value,
+      p_question_version,
+      p_question_parameters,
       p_answer,
       p_is_correct,
       p_shown_at,
@@ -92,8 +108,8 @@ begin
 end;
 $$;
 
-revoke all on function public.record_diagnosis_response(uuid, text, text, boolean, timestamptz, timestamptz, integer) from public;
-grant execute on function public.record_diagnosis_response(uuid, text, text, boolean, timestamptz, timestamptz, integer) to anon, authenticated;
+revoke all on function public.record_diagnosis_response(uuid, text, text, jsonb, text, boolean, timestamptz, timestamptz, integer) from public;
+grant execute on function public.record_diagnosis_response(uuid, text, text, jsonb, text, boolean, timestamptz, timestamptz, integer) to anon, authenticated;
 
 select
   n.nspname as schema_name,

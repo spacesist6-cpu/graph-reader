@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { aggregateExplorationFeedback, checkSupabaseConnection, loadExplorationResults, saveCheckpointAttempt, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type AggregateExplorationFeedback, type ExplorationFeedback } from "../lib/supabase/client";
+import { createDiagnosisQuestions } from "../lib/diagnosis/questions";
 
 type Step = "start" | "diagnosis" | "explore" | "checkpoint" | "feedback" | "challenge" | "complete";
 
@@ -111,12 +112,17 @@ const sliderRanges: Record<keyof QuadraticValues, { min: number; max: number }> 
 
 type DiagnosisQuestion = {
   id: string;
+  questionType: "direction" | "width" | "axis" | "intercept" | "relationship";
   prompt: string;
   choices: { id: string; label: string }[];
   correct: string;
+  explanation: string;
+  parameters: Record<string, number>;
+  variantSeed: number;
+  version: string;
 };
 
-const diagnosisQuestions: DiagnosisQuestion[] = [
+const legacyDiagnosisQuestions = [
   { id: "direction", prompt: "a가 음수인 이차함수 그래프는 어떻게 볼록한가요?", choices: [{ id: "up", label: "위로 볼록" }, { id: "down", label: "아래로 볼록" }, { id: "line", label: "직선이 됨" }], correct: "up" },
   { id: "width", prompt: "y = 3x²는 y = x²와 비교해 어떻게 보이나요?", choices: [{ id: "wide", label: "더 넓게 보임" }, { id: "same", label: "같은 폭으로 보임" }, { id: "narrow", label: "더 좁게 보임" }], correct: "narrow" },
   { id: "axis", prompt: "y = x² - 4x의 대칭축은 어디인가요?", choices: [{ id: "minus2", label: "x = -2" }, { id: "two", label: "x = 2" }, { id: "four", label: "x = 4" }], correct: "two" },
@@ -284,6 +290,7 @@ export default function Home() {
   const [finalFeedback, setFinalFeedback] = useState<string | null>(null);
   const [finalAttempts, setFinalAttempts] = useState(0);
   const [challengeDone, setChallengeDone] = useState(false);
+  const diagnosisQuestions = useMemo(() => createDiagnosisQuestions(studentCode, sessionId), [studentCode, sessionId]);
 
   useEffect(() => {
     try {
@@ -476,9 +483,9 @@ export default function Home() {
 
       <section className="content">
         {step === "start" && <StudentCodeStartScreenV2 onStart={startSession} />}
-        {step === "diagnosis" && <DiagnosisScreen index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
+        {step === "diagnosis" && <DiagnosisScreen questions={diagnosisQuestions} index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
-        {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} onRetry={() => setStep("explore")} />}
+        {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} />}
         {step === "feedback" && <ExplorationFeedbackScreen results={explorationResults} feedback={explorationFeedback} onNext={goNext} />}
         {step === "challenge" && <FinalChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
         {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
@@ -589,7 +596,8 @@ function StartScreen({ onNext }: { onNext: () => void }) {
   );
 }
 
-function DiagnosisScreen({ index, answers, shownAtByQuestion, onQuestionShown, onSubmit, onDevPath }: {
+function DiagnosisScreen({ questions, index, answers, shownAtByQuestion, onQuestionShown, onSubmit, onDevPath }: {
+  questions: DiagnosisQuestion[];
   index: number;
   answers: Record<string, { answer: string; shownAt: string; submittedAt: string }>;
   results: Record<string, boolean>;
@@ -599,7 +607,7 @@ function DiagnosisScreen({ index, answers, shownAtByQuestion, onQuestionShown, o
   onSubmit: (question: DiagnosisQuestion, answer: string, submittedAt: string, responseTimeMs: number, isCorrect: boolean) => void;
   onDevPath?: (path: PathId) => void;
 }) {
-  const question = diagnosisQuestions[index];
+  const question = questions[index];
   const [selected, setSelected] = useState(answers[question.id]?.answer ?? "");
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<{ message?: string; code?: string; details?: string; hint?: string } | null>(null);
@@ -619,7 +627,7 @@ function DiagnosisScreen({ index, answers, shownAtByQuestion, onQuestionShown, o
     const submittedAt = new Date().toISOString();
     const shownAt = shownAtRef.current || submittedAt;
     const responseTimeMs = Math.max(0, new Date(submittedAt).getTime() - new Date(shownAt).getTime());
-    const result = await saveDiagnosisResponse({ sessionId: currentLearningSessionId, questionId: question.id, answer: selected, isCorrect: selected === question.correct, shownAt, submittedAt, responseTimeMs });
+    const result = await saveDiagnosisResponse({ sessionId: currentLearningSessionId, questionId: question.id, questionVersion: question.version, questionParameters: question.parameters, answer: selected, isCorrect: selected === question.correct, shownAt, submittedAt, responseTimeMs });
     if (!result.ok) {
       setSaveError(result.error ?? { message: result.message });
       setSaving(false);
@@ -635,7 +643,7 @@ function DiagnosisScreen({ index, answers, shownAtByQuestion, onQuestionShown, o
       <div className="diagnosis-progress" aria-label={`진단 진행률 ${index + 1}/5`}>{index + 1}/5</div>
       <div className="diagnosis-card"><h3>{question.prompt}</h3><div className="diagnosis-choice-list">{question.choices.map((choice) => <button type="button" key={choice.id} className={`diagnosis-choice ${selected === choice.id ? "selected" : ""}`} onClick={() => setSelected(choice.id)}>{choice.label}</button>)}</div></div>
       {saveError && <div className="supabase-error" role="alert"><p>{saveError.message ?? "진단 응답을 저장하지 못했습니다."}</p>{process.env.NODE_ENV !== "production" && <small>{[saveError.code, saveError.details, saveError.hint].filter(Boolean).join(" | ")}</small>}</div>}
-      <button className="primary-button" disabled={!selected || saving} onClick={() => void submit()}>{saving ? "저장 중..." : index === diagnosisQuestions.length - 1 ? "진단 완료" : "다음 문항"} <span>→</span></button>
+      <button className="primary-button" disabled={!selected || saving} onClick={() => void submit()}>{saving ? "저장 중..." : index === questions.length - 1 ? "진단 완료" : "다음 문항"} <span>→</span></button>
       {process.env.NODE_ENV !== "production" && onDevPath && <div className="dev-path-tools" aria-label="개발용 경로 테스트"><button type="button" onClick={() => onDevPath("A")}>A로 테스트</button><button type="button" onClick={() => onDevPath("B")}>B로 테스트</button><button type="button" onClick={() => onDevPath("C")}>C로 테스트</button></div>}
     </div>
   );
@@ -695,7 +703,7 @@ function ExploreScreen({ selected, savedResults, onSave }: { selected: PathId; s
   );
 }
 
-function CheckpointScreen({ path, studentCode, sessionId, onAdvance, onRetry }: { path: PathId; studentCode: string; sessionId: string; onAdvance: () => void; onRetry: () => void }) {
+function CheckpointScreen({ path, studentCode, sessionId, onAdvance }: { path: PathId; studentCode: string; sessionId: string; onAdvance: () => void }) {
   const questions = useMemo(() => getCheckpointQuestions(path, studentCode, sessionId), [path, studentCode, sessionId]);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
@@ -705,6 +713,7 @@ function CheckpointScreen({ path, studentCode, sessionId, onAdvance, onRetry }: 
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [finished, setFinished] = useState(false);
+  const [attemptNumber, setAttemptNumber] = useState(0);
   const question = questions[questionIndex];
   const selectedOption = question.options.find((option) => option.id === selectedAnswer);
   const allCorrect = results.every((result) => result === true);
@@ -729,8 +738,9 @@ function CheckpointScreen({ path, studentCode, sessionId, onAdvance, onRetry }: 
     });
     if (result.ok && typeof result.isCorrect === "boolean") {
       setQuestionResult(result.isCorrect);
+      setAttemptNumber(result.attemptNumber ?? attemptNumber + 1);
       setResults((current) => current.map((value, index) => index === questionIndex ? result.isCorrect ?? false : value));
-      if (questionIndex === questions.length - 1) setFinished(true);
+      if (result.isCorrect && questionIndex === questions.length - 1) setFinished(true);
     } else if (!result.ok) {
       setSaveError(result.error?.message ?? result.message);
     }
@@ -738,16 +748,29 @@ function CheckpointScreen({ path, studentCode, sessionId, onAdvance, onRetry }: 
   };
 
   const continueCheckpoint = () => {
-    if (questionResult === null) return;
+    if (questionResult !== true) return;
     if (questionIndex < questions.length - 1) {
       setQuestionIndex((current) => current + 1);
       setSelectedAnswer(null);
       setQuestionResult(null);
       setSaveError(null);
+      setAttemptNumber(0);
     } else {
       setFinished(true);
     }
   };
+
+  const retryQuestion = () => {
+    if (questionResult !== false || saving) return;
+    setSelectedAnswer(null);
+    setQuestionResult(null);
+    setSaveError(null);
+    setFinished(false);
+    setAttemptNumber(0);
+    setShownAt(Date.now());
+  };
+
+  if (questionResult === false) return <div className="question-page checkpoint-page"><div className="section-intro"><span className="eyebrow">탐구 확인 문제</span><h2>방금 관찰한 내용을 확인해봅시다.</h2><p>틀린 문제는 같은 문제로 다시 도전할 수 있습니다.</p></div><div className="checkpoint-progress">확인문제 {questionIndex + 1} / {questions.length}</div><article className="checkpoint-card"><h3>{question.prompt}</h3><div className="checkpoint-options">{question.options.map((option) => <button type="button" key={option.id} className={`checkpoint-option ${selectedAnswer === option.id ? "selected" : ""}`} disabled><span className="checkpoint-option-mark">{option.id === selectedAnswer ? "✓" : ""}</span><span>{option.label}</span></button>)}</div><div className="checkpoint-result incorrect" role="status"><strong>다시 생각해봅시다.</strong><p>{question.explanation}</p>{attemptNumber > 0 && <small className="attempt-count">현재 시도: {attemptNumber}회</small>}</div><button type="button" className="secondary-button checkpoint-retry-button" onClick={retryQuestion}>다시 도전하기</button></article></div>;
 
   return <div className="question-page checkpoint-page"><div className="section-intro"><span className="eyebrow">탐구 확인 문제</span><h2>방금 관찰한 내용을 확인해봅시다.</h2><p>두 문제를 모두 맞히면 다음 활동으로 이동합니다.</p></div><div className="checkpoint-progress">확인문제 {questionIndex + 1} / {questions.length}</div><article className="checkpoint-card"><h3>{question.prompt}</h3><div className="checkpoint-options">{question.options.map((option) => <button type="button" key={option.id} className={`checkpoint-option ${selectedAnswer === option.id ? "selected" : ""}`} disabled={saving || questionResult !== null} onClick={() => { setSelectedAnswer(option.id); setSaveError(null); }}><span className="checkpoint-option-mark">{option.id === selectedAnswer ? "✓" : ""}</span><span>{option.label}</span></button>)}</div><button type="button" className="primary-button checkpoint-submit-button" disabled={!selectedOption || saving || questionResult !== null} onClick={() => void submitAnswer()}>{saving ? "제출 중..." : "제출하기"} <span>→</span></button>{saveError && <div className="final-feedback error" role="alert">{saveError}</div>}{questionResult !== null && <div className={`checkpoint-result ${questionResult ? "correct" : "incorrect"}`} role="status"><strong>{questionResult ? "정답입니다." : "다시 생각해봅시다."}</strong><p>{question.explanation}</p></div>}</article>{finished ? <div className={`checkpoint-summary ${allCorrect ? "correct" : "incorrect"}`} role="status"><strong>{allCorrect ? "두 문제를 모두 맞혔습니다." : "한 문제 이상 다시 확인해봅시다."}</strong><p>{allCorrect ? "다음 탐구 활동으로 이동합니다." : "틀린 개념을 다시 살펴본 뒤 같은 탐구를 다시 해보세요."}</p><button type="button" className="primary-button" onClick={allCorrect ? onAdvance : onRetry}>{allCorrect ? (path === "C" ? "탐구 결과 피드백 보기" : "다음 탐구로 이동") : "다시 탐구해보기"} <span>→</span></button></div> : questionResult !== null && <button type="button" className="secondary-button checkpoint-next-button" onClick={continueCheckpoint}>다음 확인문제 <span>→</span></button>}</div>;
 }

@@ -56,6 +56,28 @@ alter table public.learning_sessions
 alter table public.final_challenge_attempts enable row level security;
 alter table public.learning_sessions enable row level security;
 
+-- 재도전 시도는 별도 행으로 보존해야 하므로 session_id + question_id 단일 unique 제한을 제거합니다.
+do $constraint$
+declare
+  v_constraint record;
+begin
+  for v_constraint in
+    select c.conname
+    from pg_catalog.pg_constraint as c
+    where c.conrelid = 'public.final_challenge_attempts'::pg_catalog.regclass
+      and c.contype = 'u'
+      and (
+        select pg_catalog.array_agg(a.attname order by k.ordinality)
+        from pg_catalog.unnest(c.conkey) with ordinality as k(attnum, ordinality)
+        join pg_catalog.pg_attribute as a
+          on a.attrelid = c.conrelid and a.attnum = k.attnum
+      ) = pg_catalog.array['session_id', 'question_id']::text[]
+  loop
+    execute pg_catalog.format('alter table public.final_challenge_attempts drop constraint %I', v_constraint.conname);
+  end loop;
+end
+$constraint$;
+
 create or replace function public.record_final_challenge_attempt(
   p_session_id uuid,
   p_question_id text,

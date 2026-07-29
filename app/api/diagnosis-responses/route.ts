@@ -14,6 +14,8 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       sessionId?: string;
       questionId?: string;
+      questionVersion?: string;
+      questionParameters?: Record<string, number>;
       answer?: string;
       isCorrect?: boolean;
       shownAt?: string;
@@ -21,7 +23,7 @@ export async function POST(request: Request) {
       responseTimeMs?: number;
     };
 
-    if (!body.sessionId || !body.questionId || !body.answer || typeof body.isCorrect !== "boolean" || !body.shownAt || !body.submittedAt || !Number.isFinite(body.responseTimeMs)) {
+    if (!body.sessionId || !body.questionId || !body.questionVersion || !body.questionParameters || !body.answer || typeof body.isCorrect !== "boolean" || !body.shownAt || !body.submittedAt || !Number.isFinite(body.responseTimeMs)) {
       return Response.json({ ok: false, message: failureMessage, error: { message: "진단 응답 필드가 부족합니다.", code: "INVALID_INPUT" } }, { status: 400 });
     }
 
@@ -31,6 +33,8 @@ export async function POST(request: Request) {
       body: JSON.stringify({
         p_session_id: body.sessionId,
         p_question_id: body.questionId,
+        p_question_version: body.questionVersion,
+        p_question_parameters: body.questionParameters,
         p_answer: body.answer,
         p_is_correct: body.isCorrect,
         p_shown_at: body.shownAt,
