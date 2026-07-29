@@ -1,0 +1,4 @@
+{
+  "buildCommand": "NITRO_PRESET=vercel pnpm exec vite build",
+  "outputDirectory": ".vercel/output"
+}
