@@ -338,6 +338,21 @@ export default function Home() {
       if (saved) {
         const session = JSON.parse(saved) as Partial<ReturnType<typeof getPersistedSession>>;
         if (session.studentCode && session.sessionId && session.startedAt) {
+          const restoredResults = session.diagnosisResults ?? {};
+          const restoredResultCount = Object.values(restoredResults).filter(Boolean).length;
+          if (process.env.NODE_ENV !== "production") {
+            console.info("[diagnosis] localStorage session restored", {
+              step: session.step ?? "start",
+              diagnosisResultCount: restoredResultCount,
+              diagnosisQuestionCount: Object.keys(restoredResults).length,
+              currentPath: session.currentPath ?? null,
+            });
+            if (session.step === "explore" && restoredResultCount < 5) {
+              console.warn("[diagnosis] restored exploration state has fewer than 5 diagnosis results", {
+                diagnosisResultCount: restoredResultCount,
+              });
+            }
+          }
           setStudentCode(session.studentCode);
           setSessionId(session.sessionId);
           currentLearningSessionId = session.sessionId;
@@ -346,7 +361,7 @@ export default function Home() {
           setStep(session.step ?? "start");
           setDiagnosisIndex(session.diagnosisIndex ?? 0);
           setDiagnosisAnswers(session.diagnosisAnswers ?? {});
-          setDiagnosisResults(session.diagnosisResults ?? {});
+          setDiagnosisResults(restoredResults);
           setResponseTimes(session.responseTimes ?? {});
           setShownAtByQuestion(session.shownAtByQuestion ?? {});
           setCurrentPath(session.currentPath ?? null);
@@ -402,12 +417,29 @@ export default function Home() {
     if (!/^[A-Z0-9]{4,12}$/.test(normalized)) return { ok: false, message: "학습 코드를 확인해주세요." };
     const result = await startLearningSession(normalized);
     if (!result.ok || !result.session) return result;
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
     setStudentCode(result.session.studentCode);
     setSessionId(result.session.sessionId);
     currentLearningSessionId = result.session.sessionId;
     setStartedAt(result.session.startedAt);
     setCompletedAt("");
+    setDiagnosisIndex(0);
+    setDiagnosisAnswers({});
+    setDiagnosisResults({});
+    setResponseTimes({});
+    setShownAtByQuestion({});
+    setCurrentPath(null);
+    setAssignedAt(null);
+    setExplorationResults({ A: [], B: [], C: [] });
+    setExplorationFeedback(null);
+    setFinalChoiceId(null);
+    setFinalFeedback(null);
+    setFinalAttempts(0);
+    setChallengeDone(false);
     setStep("diagnosis");
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[diagnosis] new session started with cleared local state");
+    }
     return result;
   };
 
@@ -526,7 +558,7 @@ export default function Home() {
 
       <section className="content">
         {step === "start" && <StudentCodeStartScreenV2 onStart={startSession} />}
-        {step === "diagnosis" && <DiagnosisScreen questions={diagnosisQuestions} index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
+        {step === "diagnosis" && <DiagnosisScreen questions={diagnosisQuestions} index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const correctCount = Object.values(nextResults).filter(Boolean).length; const path = assignPath(correctCount); if (process.env.NODE_ENV !== "production") { console.info("[diagnosis] completed", { resultCount: Object.keys(nextResults).length, correctCount, expectedQuestionCount: diagnosisQuestions.length, assignedPath: path }); } const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
         {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} />}
         {step === "feedback" && <ExplorationFeedbackScreen results={explorationResults} feedback={explorationFeedback} onNext={goNext} />}
@@ -671,13 +703,22 @@ function DiagnosisScreen({ questions, index, answers, shownAtByQuestion, onQuest
     const submittedAt = new Date().toISOString();
     const shownAt = shownAtRef.current || submittedAt;
     const responseTimeMs = Math.max(0, new Date(submittedAt).getTime() - new Date(shownAt).getTime());
-    const result = await saveDiagnosisResponse({ sessionId: currentLearningSessionId, questionId: question.id, questionVersion: question.version, questionParameters: question.parameters, answer: selected, isCorrect: selected === question.correct, shownAt, submittedAt, responseTimeMs });
+    const isCorrect = selected === question.correct;
+    if (process.env.NODE_ENV !== "production") {
+      console.info("[diagnosis] answer submitted", {
+        questionId: question.id,
+        selectedChoiceId: selected,
+        correctChoiceId: question.correct,
+        isCorrect,
+      });
+    }
+    const result = await saveDiagnosisResponse({ sessionId: currentLearningSessionId, questionId: question.id, questionVersion: question.version, questionParameters: question.parameters, answer: selected, isCorrect, shownAt, submittedAt, responseTimeMs });
     if (!result.ok) {
       setSaveError(result.error ?? { message: result.message });
       setSaving(false);
       return;
     }
-    onSubmit(question, selected, submittedAt, responseTimeMs, selected === question.correct);
+    onSubmit(question, selected, submittedAt, responseTimeMs, isCorrect);
     setSaving(false);
   };
 
