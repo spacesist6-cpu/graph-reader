@@ -35,6 +35,7 @@ export type ExplorationStageFeedback = {
   strengths: string[];
   improvements: string[];
   nextQuestion: string;
+  hint?: string;
 };
 
 export type AggregateExplorationFeedback = {
@@ -45,6 +46,7 @@ export type ExplorationFeedbackResult = {
   ok: boolean;
   message: string;
   feedback?: ExplorationFeedback;
+  feedbackStatus?: "generated" | "fallback" | "failed";
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
