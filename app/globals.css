@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Gowun+Dodum&family=Hi+Melody&display=swap");
 @import "tailwindcss";
 
 .graph-card-decoration{width:220px;height:160px;border:1px solid #d8d8fb;background:#fff;border-radius:17px;display:flex;flex-direction:column;justify-content:center;gap:10px;padding:25px;box-shadow:0 15px 30px #6970bd20;transform:rotate(-5deg);z-index:2}.graph-card-decoration span{font-size:10px;color:#737be3;text-transform:uppercase;letter-spacing:.12em;font-weight:800}.graph-card-decoration strong{font-size:17px;line-height:1.45}.geogebra-frame{background:#fff;border:1px solid #dedfea;border-radius:17px;overflow:hidden;box-shadow:0 12px 28px #5b65a51a;min-height:430px}.geogebra-container{width:100%;min-height:430px}.geogebra-container>div{max-width:100%!important}.geogebra-status{border-top:1px solid #eef0f5;padding:10px 14px;color:#7d8797;font-size:11px;background:#fcfcfe}.graph-caption{font-size:12px;color:#7e8797;line-height:1.6;margin:10px 3px 0}.graph-caption b{color:#5665dc}.challenge-visual{height:230px;border-radius:14px;background:linear-gradient(135deg,#eef0ff,#f8f7ff);display:flex;flex-direction:column;justify-content:center;align-items:center;gap:12px;color:#5a65d8}.challenge-visual span{font-size:11px;letter-spacing:.1em;font-weight:800;text-transform:uppercase}.challenge-visual strong{font-family:Georgia,serif;font-size:25px}.challenge-visual small{color:#8790a2;font-size:12px}
@@ -22,6 +23,7 @@
 /* Korean-first UI typography: use installed fonts when available and fall back safely. */
 :root {
   --font-ui: Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-hand: "Gowun Dodum", "Hi Melody", "Noto Sans KR", sans-serif;
   --font-math: "STIX Two Math", "Cambria Math", "Times New Roman", Georgia, serif;
 }
 
@@ -40,12 +42,89 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* Exploration layout: controls, readable formula/features, then the graph. */
+.geogebra-stack { display: grid; grid-template-columns: minmax(170px, .8fr) minmax(220px, .95fr) minmax(320px, 1.45fr); gap: 16px; align-items: start; }
+.geogebra-stack .coefficient-panel { grid-column: 1; grid-row: 1; margin-top: 0; }
+.geogebra-stack .coefficient-controls { grid-template-columns: 1fr; }
+.geogebra-stack .graph-information { grid-column: 2; grid-row: 1; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0; align-content: start; }
+.geogebra-stack .geogebra-frame { grid-column: 3; grid-row: 1 / span 2; }
+.geogebra-stack .graph-information .current-function { grid-column: 1 / -1; }
+.geogebra-stack .exploration-response { grid-column: 1 / 3; grid-row: 2; margin-top: 0; }
+.geogebra-stack .exploration-response { padding: 14px 16px; }
+.geogebra-stack .exploration-response .eyebrow { font-size: 10px; }
+.geogebra-stack .exploration-response h3 { font-size: 16px; margin: 4px 0 4px; line-height: 1.35; }
+.geogebra-stack .exploration-response .observation-guide { margin-bottom: 6px !important; font-size: 12px; line-height: 1.45; }
+.geogebra-stack .exploration-response h4 { margin: 8px 0 4px; font-size: 14px; line-height: 1.45; }
+.geogebra-stack .exploration-response > p:not(.observation-guide) { margin-bottom: 8px; font-size: 12px; line-height: 1.5; }
+.geogebra-stack .exploration-response textarea { min-height: 96px; height: 108px; padding: 10px 12px; line-height: 1.55; }
+.geogebra-stack .exploration-response .primary-button { margin-top: 10px; padding-block: 11px; }
+.explore-question-page > .exploration-response { display: none; }
+.current-function strong { font-family: var(--font-math); font-style: italic; font-size: 18px; overflow-wrap: anywhere; }
+.current-function span { color: #5968e4 !important; font-weight: 700; }
+.explore-layout-single { display: block; margin: 28px 0 18px; }
+.explore-layout-single>div { min-width: 0; }
+.exploration-response { width: 100%; margin-top: 18px; }
+.exploration-response h4 { margin: 18px 0 8px; font-size: 16px; line-height: 1.6; }
+.observation-guide { margin: 0 0 12px !important; color: #697487; font-size: 13px; line-height: 1.7; }
+@media (max-width: 900px) {
+  .geogebra-stack { grid-template-columns: 1fr 1fr; }
+  .geogebra-stack .geogebra-frame { grid-column: 1 / -1; grid-row: 1; }
+  .geogebra-stack .coefficient-panel { grid-column: 1; grid-row: 2; }
+  .geogebra-stack .graph-information { grid-column: 2; grid-row: 2; }
+  .geogebra-stack .exploration-response { grid-column: 1 / -1; grid-row: 3; }
+}
+@media (max-width: 700px) {
+  .geogebra-stack { display: flex; flex-direction: column; gap: 12px; }
+  .geogebra-stack .graph-information { order: 1; width: 100%; grid-template-columns: 1fr 1fr; }
+  .geogebra-stack .geogebra-frame { order: 2; width: 100%; }
+  .geogebra-stack .coefficient-panel { order: 3; width: 100%; }
+  .geogebra-stack .exploration-response { order: 4; width: 100%; }
+  .current-function strong { font-size: 17px; }
+}
+
+.explore-question-page { max-width: 1200px; }
+.content:has(.explore-question-page) { max-width: 1200px; }
+.geogebra-stack .geogebra-frame,
+.geogebra-stack .geogebra-container { min-height: 440px; }
+.geogebra-stack .geogebra-container { aspect-ratio: 1 / 1; }
+
+@media (max-width: 700px) {
+  .geogebra-stack .geogebra-frame,
+  .geogebra-stack .geogebra-container { min-height: 0; }
+  .explore-question-page { width: 100%; }
+}
+
 button, input, textarea, select { font-family: inherit; }
 
 h1, h2, h3, h4, strong, .brand, .brand-copy strong, .hero-copy h1, .section-intro h2, .complete-page h2 {
   font-weight: 750;
   letter-spacing: -0.035em;
 }
+
+/* Warm display type is reserved for hierarchy and actions. Data stays readable. */
+.brand-copy strong, .hero-copy h1, .section-intro h2, .complete-page h2,
+.diagnosis-card h3, .checkpoint-card h3, .feedback-card h3, .final-formula,
+.primary-button, .secondary-button, .checkpoint-option, .diagnosis-choice,
+.choice-card, .graph-option, .answer, .final-choice, .eyebrow,
+.teacher-brand, .teacher-dashboard-header h1, .teacher-auth-card h1,
+.teacher-section-heading h2, .teacher-analysis-card h2, .teacher-detail-section h2,
+.teacher-wrong-section h3, .summary-card>div>span, .dashboard-status,
+.teacher-status, .priority-item, .teacher-record-title strong {
+  font-family: var(--font-hand);
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.brand-copy small, .teacher-table, .teacher-student-table, .teacher-record p,
+.student-response, .teacher-long-text, .teacher-subtitle, .teacher-alert,
+.summary-card strong, .coefficient-snapshot, .function-graph, input, textarea, select {
+  font-family: var(--font-ui);
+}
+
+.primary-button, .secondary-button, .checkpoint-option, .diagnosis-choice,
+.choice-card, .graph-option, .answer, .final-choice { font-size: 15px; }
+.teacher-table, .teacher-student-table, .teacher-record p, .teacher-long-text,
+.student-response, .summary-card strong { letter-spacing: -0.012em; }
 
 .hero-copy h1, .section-intro h2, .complete-page h2 { line-height: 1.25; overflow-wrap: anywhere; }
 
@@ -74,3 +153,5 @@ h1, h2, h3, h4, strong, .brand, .brand-copy strong, .hero-copy h1, .section-intr
   .primary-button, .secondary-button { font-size: 13px; padding-inline: 17px; }
   .choice-card, .graph-option, .diagnosis-choice, .checkpoint-option { line-height: 1.65; }
 }
+
+.teacher-page{min-height:100vh;padding:52px 6vw 72px;background:#f7f8fc;color:var(--ink)}.teacher-header{max-width:1240px;margin:0 auto 28px;display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.teacher-header h1{font-size:38px;margin:10px 0 6px;letter-spacing:-.05em}.teacher-subtitle{color:var(--muted);margin:0;font-size:13px}.teacher-metrics{max-width:1240px;margin:0 auto 28px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}.teacher-metric{background:#fff;border:1px solid var(--line);border-radius:15px;padding:18px 20px;box-shadow:0 8px 22px #626edb0b}.teacher-metric span{display:block;color:#8993a4;font-size:12px;margin-bottom:12px}.teacher-metric strong{font-size:25px;color:#344052}.teacher-panel{max-width:1240px;margin:0 auto 20px;background:#fff;border:1px solid var(--line);border-radius:17px;padding:24px;box-shadow:0 8px 22px #626edb0b}.teacher-panel-heading{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px}.teacher-panel-heading h2,.teacher-detail-section h2{font-size:20px;margin:9px 0 0}.teacher-panel-heading>span{color:#8993a4;font-size:12px}.teacher-table-wrap{overflow-x:auto}.teacher-table{width:100%;border-collapse:collapse;min-width:850px;font-size:12px}.teacher-table th{color:#8993a4;text-align:left;font-weight:650;padding:12px 10px;border-bottom:1px solid var(--line);white-space:nowrap}.teacher-table td{padding:15px 10px;border-bottom:1px solid #f0f1f5;white-space:nowrap;color:#5e6a7d}.teacher-table tbody tr{cursor:pointer;transition:background .15s}.teacher-table tbody tr:hover,.teacher-table tbody tr:focus{background:#f8f9ff;outline:none}.teacher-table td strong{color:var(--ink);font-size:13px}.teacher-status{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;font-size:11px;font-weight:700}.teacher-status.completed{background:#e9faf4;color:#269b7b}.teacher-status.progress{background:#fff3e4;color:#b87937}.teacher-auth-page{min-height:100vh;display:grid;place-items:center;padding:24px;background:linear-gradient(135deg,#f7f8ff,#fffaf3)}.teacher-auth-card{width:min(100%,430px);background:#fff;border:1px solid var(--line);border-radius:20px;padding:34px;box-shadow:0 18px 40px #626edb16}.teacher-auth-card h1{font-size:31px;margin:14px 0 8px}.teacher-auth-card>p{color:var(--muted);font-size:13px;line-height:1.7;margin:0 0 24px}.teacher-auth-card form{display:grid;gap:15px}.teacher-auth-card label{display:grid;gap:7px;color:#59677b;font-size:12px;font-weight:650}.teacher-auth-card input{width:100%;border:1px solid #dfe2ea;border-radius:10px;padding:12px;font:inherit;color:var(--ink)}.teacher-auth-card input:focus{outline:2px solid #aeb7ff;border-color:#5968e4}.teacher-submit{width:100%;margin-top:4px}.teacher-back-link{display:block;color:#697487;font-size:12px;text-align:center;margin-top:20px}.teacher-alert{border-radius:11px;padding:12px 14px;font-size:12px;line-height:1.6}.teacher-alert.error{color:#bc6c58;background:#fff5f1}.teacher-empty,.teacher-muted{color:var(--muted);font-size:13px;line-height:1.7}.teacher-empty{max-width:1240px;margin:20px auto;padding:28px;background:#fff;border:1px dashed #cfd4e4;border-radius:15px;text-align:center}.teacher-back-button{border:0;background:transparent;color:#5968e4;padding:0;cursor:pointer;font:inherit;font-size:12px;font-weight:650}.teacher-detail-grid{max-width:1240px;margin:0 auto;display:grid;gap:20px}.teacher-detail-section{margin:0}.teacher-record{border-top:1px solid #eef0f5;padding:18px 0 4px}.teacher-record-title{display:flex;justify-content:space-between;gap:10px;margin-bottom:10px}.teacher-record-title span{color:#8993a4;font-size:11px}.teacher-record p{white-space:pre-wrap;color:#697487;font-size:13px;line-height:1.7;margin:12px 0}.teacher-record p b{display:block;color:#344052;font-size:12px;margin-bottom:3px}.teacher-completion-card{padding:26px;background:#fff;border:1px solid var(--line);border-radius:17px;text-align:center}.teacher-completion-card h2{font-size:21px;margin:14px 0 7px}.teacher-completion-card p{color:var(--muted);font-size:13px;margin:0}@media(max-width:900px){.teacher-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:600px){.teacher-page{padding:30px 16px 50px}.teacher-header h1{font-size:31px}.teacher-panel{padding:18px 14px}.teacher-metric{padding:15px}.teacher-metric strong{font-size:21px}.teacher-auth-card{padding:26px 20px}}

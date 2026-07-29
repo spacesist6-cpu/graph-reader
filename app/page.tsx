@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { aggregateExplorationFeedback, checkSupabaseConnection, loadExplorationResults, saveCheckpointAttempt, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type AggregateExplorationFeedback, type ExplorationFeedback } from "../lib/supabase/client";
 import { createDiagnosisQuestions } from "../lib/diagnosis/questions";
+import { createFinalChallengeQuestion, type FinalChallengeQuestion } from "../lib/final-challenge/questions";
 
 type Step = "start" | "diagnosis" | "explore" | "checkpoint" | "feedback" | "challenge" | "complete";
 
@@ -15,6 +16,7 @@ const graphOptions = [
 type GeoGebraApi = {
   evalCommand: (command: string) => boolean;
   setValue?: (name: string, value: number) => void;
+  setSize?: (width: number, height: number) => void;
   showAlgebraInput?: (show: boolean) => void;
   showToolBar?: (show: boolean) => void;
   showMenuBar?: (show: boolean) => void;
@@ -104,10 +106,10 @@ const pathSliders: Record<PathId, (keyof QuadraticValues)[]> = {
   C: ["a", "b", "c"],
 };
 
-const sliderRanges: Record<keyof QuadraticValues, { min: number; max: number }> = {
-  a: { min: -5, max: 5 },
-  b: { min: -10, max: 10 },
-  c: { min: -5, max: 5 },
+const sliderRanges: Record<keyof QuadraticValues, { min: number; max: number; step: number }> = {
+  a: { min: -3, max: 3, step: 0.5 },
+  b: { min: -6, max: 6, step: 0.5 },
+  c: { min: -5, max: 5, step: 1 },
 };
 
 type DiagnosisQuestion = {
@@ -140,7 +142,23 @@ function assignPath(score: number): PathId {
   return (Object.entries(diagnosisPathRules).find(([, rule]) => score >= rule.min && score <= rule.max)?.[0] ?? "A") as PathId;
 }
 
-function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onCoefficientChange?: (change: CoefficientChange) => void } = {}) {
+function formatNumber(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/\.0+$/, "").replace(/(\.\d*?)0+$/, "$1");
+}
+
+function formatQuadraticExpression({ a, b, c }: QuadraticValues) {
+  const terms: string[] = [];
+  if (a !== 0) terms.push(`${a < 0 ? "-" : ""}${Math.abs(a) === 1 ? "" : formatNumber(Math.abs(a))}x²`);
+  if (b !== 0) terms.push(`${b < 0 ? "-" : "+"} ${Math.abs(b) === 1 ? "" : formatNumber(Math.abs(b))}x`);
+  if (c !== 0) terms.push(`${c < 0 ? "-" : "+"} ${formatNumber(Math.abs(c))}`);
+  return `y = ${terms.length ? terms.join(" ") : "0"}`;
+}
+
+function getGraphCoordSystem() {
+  return { xmin: -6, xmax: 6, ymin: -6, ymax: 6 };
+}
+
+function GeoGebraGraph({ path = "C", onCoefficientChange, observation }: { path?: PathId; onCoefficientChange?: (change: CoefficientChange) => void; observation?: ReactNode } = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<GeoGebraApi | null>(null);
   const [values, setValues] = useState<QuadraticValues>(pathDefaults[path]);
@@ -173,13 +191,12 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
         return;
       }
 
-      const width = Math.max(280, Math.min(650, container.clientWidth || 650));
-      const height = Math.round(width * 0.66);
+      const size = Math.max(280, Math.min(560, container.clientWidth || 560));
       const applet = new geoWindow.GGBApplet({
         appName: "graphing",
         language: "ko",
-        width,
-        height,
+        width: size,
+        height: size,
         showToolBar: false,
         showToolBarHelp: false,
         showMenuBar: false,
@@ -203,7 +220,8 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
           api.showResetIcon?.(false);
           api.setPerspective?.("G");
           api.evalCommand('SetPerspective("G")');
-          api.setCoordSystem?.(-6, 6, -12, 8);
+          const viewport = getGraphCoordSystem();
+          api.setCoordSystem?.(viewport.xmin, viewport.xmax, viewport.ymin, viewport.ymax);
           window.setTimeout(() => {
             api.setPerspective?.("G");
             api.evalCommand('SetPerspective("G")');
@@ -211,6 +229,8 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
             api.showToolBar?.(false);
             api.showMenuBar?.(false);
             api.showResetIcon?.(false);
+            const nextViewport = getGraphCoordSystem();
+            api.setCoordSystem?.(nextViewport.xmin, nextViewport.xmax, nextViewport.ymin, nextViewport.ymax);
           }, 250);
           setLoadError(null);
         },
@@ -220,10 +240,21 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
       applet.inject(container);
     };
 
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      const api = apiRef.current;
+      const currentContainer = containerRef.current;
+      if (!api || !currentContainer) return;
+      const nextSize = Math.max(280, Math.min(560, currentContainer.clientWidth || 560));
+      api.setSize?.(nextSize, nextSize);
+      const viewport = getGraphCoordSystem();
+      api.setCoordSystem?.(viewport.xmin, viewport.xmax, viewport.ymin, viewport.ymax);
+    });
+    resizeObserver?.observe(container);
+
     const existingScript = document.querySelector<HTMLScriptElement>("script[data-geogebra-loader]");
     if (existingScript) {
       loadApplet();
-      return;
+      return () => resizeObserver?.disconnect();
     }
 
     const script = document.createElement("script");
@@ -233,6 +264,7 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
     script.onload = loadApplet;
     script.onerror = () => setLoadError("GeoGebra를 불러오지 못했어요. 인터넷 연결을 확인해주세요.");
     document.head.appendChild(script);
+    return () => resizeObserver?.disconnect();
   }, []);
 
   useEffect(() => {
@@ -241,6 +273,8 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
     api.setValue?.("a", values.a);
     api.setValue?.("b", values.b);
     api.setValue?.("c", values.c);
+    const viewport = getGraphCoordSystem();
+    api.setCoordSystem?.(viewport.xmin, viewport.xmax, viewport.ymin, viewport.ymax);
   }, [values]);
 
   return (
@@ -250,24 +284,29 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
       {loadError && <div className="geogebra-status error" role="alert">{loadError}</div>}
       </div>
       <div className="coefficient-panel">
-      <div className="coefficient-heading">변화시키는 계수</div>
+      <div className="coefficient-heading">변경 가능한 계수</div>
       <div className="coefficient-controls" aria-label="이차함수 계수 조절">
         {pathSliders[path].map((key) => (
           <label key={key}>
-            <span>{key} <b>{values[key]}</b></span>
-            <input type="range" min={sliderRanges[key].min} max={sliderRanges[key].max} step="1" value={values[key]} onChange={(event) => updateValue(key, event.target.value)} />
+            <span style={{ textTransform: "none" }}>{key} <b>{values[key]}</b></span>
+            <input type="range" min={sliderRanges[key].min} max={sliderRanges[key].max} step={sliderRanges[key].step} value={values[key]} onChange={(event) => updateValue(key, event.target.value)} />
           </label>
         ))}
       </div>
       <div className="fixed-coefficients"><span>고정된 계수</span>{(["a", "b", "c"] as const).filter((key) => !pathSliders[path].includes(key)).map((key) => <span key={key}>🔒 {key} = {values[key]}</span>)}</div>
-      <p className="coefficient-guide">계수를 움직여 그래프의 변화를 관찰해보세요.</p>
+      <p className="coefficient-guide">슬라이더를 움직여 함수식과 그래프의 변화를 관찰해보세요.</p>
       </div>
       <div className="graph-information" aria-live="polite">
-        <div><span>현재 함수식</span><strong>y = {values.a}x² {values.b < 0 ? `- ${Math.abs(values.b)}x` : `+ ${values.b}x`} {values.c < 0 ? `- ${Math.abs(values.c)}` : `+ ${values.c}`}</strong></div>
-        {values.a === 0 ? <p className="invalid-quadratic">a가 0이면 이차함수 그래프를 만들 수 없습니다.</p> : <><div><span>꼭짓점</span><strong>({(-values.b / (2 * values.a)).toFixed(2)}, {(values.c - (values.b ** 2) / (4 * values.a)).toFixed(2)})</strong></div><div><span>대칭축</span><strong>x = {(-values.b / (2 * values.a)).toFixed(2)}</strong></div><div><span>y절편</span><strong>{values.c}</strong></div></>}
+        <div className="current-function"><span>현재 함수 · y = ax² + bx + c</span><strong>{formatQuadraticExpression(values)}</strong></div>
+        {values.a === 0 ? <p className="invalid-quadratic">a가 0이면 이차함수 그래프를 만들 수 없습니다.</p> : <><div><span>볼록 방향</span><strong>{values.a > 0 ? "아래로 볼록" : "위로 볼록"}</strong></div><div><span>꼭짓점</span><strong>({formatNumber(-values.b / (2 * values.a))}, {formatNumber(values.c - (values.b ** 2) / (4 * values.a))})</strong></div><div><span>대칭축</span><strong>x = {formatNumber(-values.b / (2 * values.a))}</strong></div><div><span>y절편</span><strong>{formatNumber(values.c)}</strong></div></>}
       </div>
+      {observation}
     </div>
   );
+}
+
+function ExplorationResponsePanel({ prompt, responseText, onResponseChange, savedCount, saving, onSave, saveError, saved }: { prompt: ExplorationPrompt; responseText: string; onResponseChange: (value: string) => void; savedCount: number; saving: boolean; onSave: () => void | Promise<void>; saveError: string | null; saved: boolean }) {
+  return <div className="exploration-response"><span className="eyebrow">관찰 기록 · 탐구 결과 작성</span><h3>관찰 기록</h3><p className="observation-guide">슬라이더를 움직이며 함수식과 그래프의 변화를 관찰해보세요.</p><h4>{prompt.question}</h4><p>{prompt.support}</p><textarea value={responseText} onChange={(event) => onResponseChange(event.target.value)} placeholder="관찰한 내용을 자신의 말로 작성해보세요." rows={6} aria-label="탐구 결과 작성" /><div className="response-meta"><span>{responseText.length}자 · 최소 20자</span><span>작성 횟수: {savedCount}</span></div><button className="primary-button" disabled={responseText.trim().length < 20 || saving} onClick={() => void onSave()}>{saving ? "저장하고 분석 중..." : "탐구 결과 저장"} <span>→</span></button>{saveError && <p className="supabase-error" role="alert">{saveError}</p>}{saved && <p className="response-saved" role="status">탐구 결과를 저장했습니다. 피드백 화면으로 이동합니다.</p>}</div>;
 }
 
 export default function Home() {
@@ -291,6 +330,7 @@ export default function Home() {
   const [finalAttempts, setFinalAttempts] = useState(0);
   const [challengeDone, setChallengeDone] = useState(false);
   const diagnosisQuestions = useMemo(() => createDiagnosisQuestions(studentCode, sessionId), [studentCode, sessionId]);
+  const finalQuestion = useMemo(() => createFinalChallengeQuestion(studentCode, sessionId), [studentCode, sessionId]);
 
   useEffect(() => {
     try {
@@ -405,12 +445,15 @@ export default function Home() {
       questionId: finalQuestion.id,
       questionFormula: finalQuestion.formula,
       questionParameters: {
+        variantSeed: finalQuestion.variantSeed,
+        version: finalQuestion.version,
         a: finalQuestion.coefficients.a,
         b: finalQuestion.coefficients.b,
         c: finalQuestion.coefficients.c,
         vertex: finalQuestion.vertex,
         axis: finalQuestion.axis,
         yIntercept: finalQuestion.yIntercept,
+        explanation: finalQuestion.explanation,
       },
       selectedChoiceId: choice.id,
       selectedFormula: choice.formula,
@@ -487,7 +530,7 @@ export default function Home() {
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
         {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} />}
         {step === "feedback" && <ExplorationFeedbackScreen results={explorationResults} feedback={explorationFeedback} onNext={goNext} />}
-        {step === "challenge" && <FinalChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
+        {step === "challenge" && <FinalChallengeScreen question={finalQuestion} selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
         {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
       </section>
 
@@ -546,7 +589,8 @@ function StudentCodeStartScreenV2({ onStart }: { onStart: (code: string) => Prom
     setSaving(false);
   };
 
-  return <div className="hero-grid"><div className="hero-copy"><span className="eyebrow">오늘의 맞춤 미션 · 10분</span><h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1><p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p><div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><strong>Leader</strong> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div><div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} />{error && <span className="student-code-error" role="alert">{error}</span>}{debugError && <span className="student-code-debug" role="status">개발 오류: {debugError}</span>}<button className="primary-button" onClick={() => void submit()} disabled={saving}>{saving ? "학습 기록 저장 중..." : "학습 시작하기"} <span>→</span></button><DetailedSupabaseConnectionCheck /></div></div><div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div></div>;
+ return <div className="hero-grid"><div className="hero-copy"><span className="eyebrow">오늘의 맞춤 미션 · 10분</span><h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1><p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p><div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><a className="leader-link inline-block cursor-pointer px-0.5 py-1 -mx-0.5 -my-1 no-underline hover:text-[var(--blue)] focus-visible:outline-2 focus-visible:outline-[var(--blue)] focus-visible:outline-offset-2" href="/teacher/login"><strong>Leader</strong></a> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div><div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} />{error && <span className="student-code-error" role="alert">{error}</span>}{debugError && <span className="student-code-debug" role="status">개발 오류: {debugError}</span>}<button className="primary-button" onClick={() => void submit()} disabled={saving}>{saving ? "학습 기록 저장 중..." : "학습 시작하기"} <span>→</span></button><DetailedSupabaseConnectionCheck /></div></div><div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div></div>;
+  return <div className="hero-grid"><div className="hero-copy"><span className="eyebrow">오늘의 맞춤 미션 · 10분</span><h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1><p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p><div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><a className="leader-link inline-block cursor-pointer px-0.5 py-1 -mx-0.5 -my-1 no-underline hover:text-[var(--blue)] focus-visible:outline-2 focus-visible:outline-[var(--blue)] focus-visible:outline-offset-2" href="/teacher/login"><strong>Leader</strong></a> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div><div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} />{error && <span className="student-code-error" role="alert">{error}</span>}{debugError && <span className="student-code-debug" role="status">개발 오류: {debugError}</span>}<button className="primary-button" onClick={() => void submit()} disabled={saving}>{saving ? "학습 기록 저장 중..." : "학습 시작하기"} <span>→</span></button><DetailedSupabaseConnectionCheck /></div></div><div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div></div>;
 }
 
 function StudentCodeStartScreen({ onStart }: { onStart: (code: string) => boolean }) {
@@ -567,7 +611,7 @@ function StudentCodeStartScreen({ onStart }: { onStart: (code: string) => boolea
         <span className="eyebrow">오늘의 맞춤 미션 · 10분</span>
         <h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1>
         <p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p>
-        <div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><strong>Leader</strong> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div>
+        <div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><a className="leader-link inline-block cursor-pointer px-0.5 py-1 -mx-0.5 -my-1 no-underline hover:text-[var(--blue)] focus-visible:outline-2 focus-visible:outline-[var(--blue)] focus-visible:outline-offset-2" href="/teacher/login"><strong>Leader</strong></a> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div>
         <div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") submit(); }} aria-describedby={error ? "student-code-error" : undefined} />{error && <span id="student-code-error" className="student-code-error" role="alert">{error}</span>}<button className="primary-button" onClick={submit}>학습 시작하기 <span>→</span></button><DetailedSupabaseConnectionCheck /></div>
       </div>
       <div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div>
@@ -695,10 +739,10 @@ function ExploreScreen({ selected, savedResults, onSave }: { selected: PathId; s
   };
 
   return (
-    <div className="question-page">
+    <div className="question-page explore-question-page">
       <div className="section-intro row-intro"><div><span className="eyebrow">02 · 그래프 탐색</span><h2>계수를 움직이며 그래프의 변화를 관찰해보세요.</h2><p>표시된 계수 슬라이더를 조절하고 포물선의 변화를 살펴보세요.</p></div><span className="hint-pill">실험 <b>↗</b></span></div>
-      <div className="explore-layout"><div><GeoGebraGraph path={selected} onCoefficientChange={(change) => { setLastCoefficientChange(change); setSaved(false); }} /><span className="sr-only">최근 계수 변경 {lastCoefficientChange?.changedAt ?? "없음"}</span></div><div className="observation"><span>◒</span><p><strong>관찰 포인트</strong><br />계수가 바뀌면 포물선의 모양과 위치가 어떻게 달라지는지 확인해보세요.</p></div></div>
-      <div className="exploration-response"><span className="eyebrow">탐구 결과 작성</span><h3>{prompt.question}</h3><p>{prompt.support}</p><textarea value={responseText} onChange={(event) => { setResponseText(event.target.value); setSaved(false); setSaveError(null); }} placeholder="관찰한 내용을 자신의 말로 작성해보세요." rows={6} aria-label="탐구 결과 작성" /><div className="response-meta"><span>{responseText.length}자 · 최소 20자</span><span>작성 횟수: {savedResults.length}</span></div><button className="primary-button" disabled={responseText.trim().length < 20 || saving} onClick={() => void saveResponse()}>{saving ? "저장하고 분석 중..." : "탐구 결과 저장"} <span>→</span></button>{saveError && <p className="supabase-error" role="alert">{saveError}</p>}{saved && <p className="response-saved" role="status">탐구 결과를 저장했습니다. 피드백 화면으로 이동합니다.</p>}</div>
+      <div className="explore-layout explore-layout-single"><div><GeoGebraGraph path={selected} onCoefficientChange={(change) => { setLastCoefficientChange(change); setSaved(false); }} observation={<ExplorationResponsePanel prompt={prompt} responseText={responseText} onResponseChange={(value) => { setResponseText(value); setSaved(false); setSaveError(null); }} savedCount={savedResults.length} saving={saving} onSave={saveResponse} saveError={saveError} saved={saved} />} /><span className="sr-only">최근 계수 변경 {lastCoefficientChange?.changedAt ?? "없음"}</span></div></div>
+      <div className="exploration-response"><span className="eyebrow">관찰 기록 · 탐구 결과 작성</span><h3>관찰 기록</h3><p className="observation-guide">슬라이더를 움직이며 함수식과 그래프의 변화를 관찰해보세요.</p><h4>{prompt.question}</h4><p>{prompt.support}</p><textarea value={responseText} onChange={(event) => { setResponseText(event.target.value); setSaved(false); setSaveError(null); }} placeholder="관찰한 내용을 자신의 말로 작성해보세요." rows={6} aria-label="탐구 결과 작성" /><div className="response-meta"><span>{responseText.length}자 · 최소 20자</span><span>작성 횟수: {savedResults.length}</span></div><button className="primary-button" disabled={responseText.trim().length < 20 || saving} onClick={() => void saveResponse()}>{saving ? "저장하고 분석 중..." : "탐구 결과 저장"} <span>→</span></button>{saveError && <p className="supabase-error" role="alert">{saveError}</p>}{saved && <p className="response-saved" role="status">탐구 결과를 저장했습니다. 피드백 화면으로 이동합니다.</p>}</div>
     </div>
   );
 }
@@ -820,10 +864,10 @@ function FunctionGraph({ choice }: { choice: GraphChoice }) {
   return <svg className="function-graph" viewBox="0 0 200 104" role="img" aria-label={`${choice.formula} 그래프`}><line x1="12" y1={toY(0)} x2="188" y2={toY(0)} className="function-axis" /><line x1={toX(0)} y1="8" x2={toX(0)} y2="92" className="function-axis" /><path d={path} className="function-curve" /></svg>;
 }
 
-function FinalChallengeScreen({ selected, feedback, attempts, done, onSelect, onSubmit, onRetry }: { selected: string | null; feedback: string | null; attempts: number; done: boolean; onSelect: (choice: GraphChoice) => void; onSubmit: (choice: GraphChoice) => Promise<{ ok: boolean; message: string; error?: { message?: string; code?: string; details?: string; hint?: string }; attemptNumber?: number; feedback?: string }>; onRetry: () => void }) {
+function FinalChallengeScreen({ question, selected, feedback, attempts, done, onSelect, onSubmit, onRetry }: { question: FinalChallengeQuestion; selected: string | null; feedback: string | null; attempts: number; done: boolean; onSelect: (choice: GraphChoice) => void; onSubmit: (choice: GraphChoice) => Promise<{ ok: boolean; message: string; error?: { message?: string; code?: string; details?: string; hint?: string }; attemptNumber?: number; feedback?: string }>; onRetry: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const selectedChoice = finalQuestion.graphChoices.find((choice) => choice.id === selected);
+  const selectedChoice = question.graphChoices.find((choice) => choice.id === selected);
 
   const submit = async () => {
     if (!selectedChoice || submitting) return;
@@ -834,7 +878,7 @@ function FinalChallengeScreen({ selected, feedback, attempts, done, onSelect, on
     setSubmitting(false);
   };
 
-  return <div className="question-page"><div className="section-intro"><span className="eyebrow">03 · 최종 미션</span><h2>그래프의 특징을 연결해볼까요?</h2><p>다음 이차함수의 그래프에 해당하는 것을 고르시오.</p><div className="final-formula">{finalQuestion.formula}</div></div><div className="final-choices">{finalQuestion.graphChoices.map((choice) => <button type="button" key={choice.id} className={`final-choice ${selected === choice.id ? "selected" : ""} ${selected === choice.id && done ? "correct" : ""}`} disabled={submitting} onClick={() => { setSubmitError(null); onSelect(choice); }}><FunctionGraph choice={choice} /><strong>그래프 {choice.id.replace("choice-", "")}</strong></button>)}</div><button type="button" className="primary-button final-submit-button" disabled={!selectedChoice || submitting} onClick={() => void submit()}>{submitting ? "제출 중..." : "제출하기"} <span>→</span></button>{submitError && <div className="final-feedback error" role="alert">{submitError}</div>}{feedback && <div className={`final-feedback ${done ? "success" : "error"}`} role="status">{feedback}</div>}{feedback && !done && <button type="button" className="secondary-button retry-button" onClick={() => { setSubmitError(null); onRetry(); }}>다시 도전하기</button>}<small className="attempt-count final-attempt-count">시도 횟수: {attempts}회</small></div>;
+  return <div className="question-page"><div className="section-intro"><span className="eyebrow">03 · 최종 미션</span><h2>그래프의 특징을 연결해볼까요?</h2><p>다음 이차함수의 그래프에 해당하는 것을 고르시오.</p><div className="final-formula">{question.formula}</div></div><div className="final-choices">{question.graphChoices.map((choice) => <button type="button" key={choice.id} className={`final-choice ${selected === choice.id ? "selected" : ""} ${selected === choice.id && done ? "correct" : ""}`} disabled={submitting} onClick={() => { setSubmitError(null); onSelect(choice); }}><FunctionGraph choice={choice} /><strong>그래프 {choice.id.replace("choice-", "")}</strong></button>)}</div><button type="button" className="primary-button final-submit-button" disabled={!selectedChoice || submitting} onClick={() => void submit()}>{submitting ? "제출 중..." : "제출하기"} <span>→</span></button>{submitError && <div className="final-feedback error" role="alert">{submitError}</div>}{feedback && <div className={`final-feedback ${done ? "success" : "error"}`} role="status">{feedback}</div>}{feedback && !done && <button type="button" className="secondary-button retry-button" onClick={() => { setSubmitError(null); onRetry(); }}>다시 도전하기</button>}<small className="attempt-count final-attempt-count">시도 횟수: {attempts}회</small></div>;
 }
 
 function ChallengeScreen({ selected, feedback, attempts, done, onSelect, onRetry, onNext }: { selected: string | null; feedback: string | null; attempts: number; done: boolean; onSelect: (choice: GraphChoice) => void; onRetry: () => void; onNext: () => void }) {
