@@ -18,3 +18,59 @@
 .feedback-card{background:#fff;border:1px solid var(--line);border-radius:17px;padding:28px;margin:30px 0 12px;box-shadow:0 12px 28px #626edb0d}.feedback-card h3{font-size:15px;margin:22px 0 8px}.feedback-card p,.feedback-card li{color:#697487;font-size:13px;line-height:1.75}.feedback-card ul{margin:8px 0 0;padding-left:20px}.student-response{white-space:pre-wrap;background:#fafaff;border-radius:11px;padding:14px;margin:8px 0;color:var(--ink)!important}.coefficient-snapshot{display:inline-block;background:#f0f2ff;border-radius:10px;padding:9px 12px;color:#5968e4!important;font-weight:700}.feedback-section{border-top:1px solid var(--line);padding-top:2px}.feedback-empty{background:#fff;border:1px dashed #cfd4e4;border-radius:17px;padding:32px;text-align:center;margin:30px 0 12px}.feedback-empty strong{display:block;font-size:16px;margin-bottom:8px}.feedback-empty p{color:var(--muted);font-size:13px;line-height:1.7;margin:0}
 .final-submit-button{display:block;min-width:190px;margin:18px auto 0}.final-submit-button:disabled{box-shadow:none}
 .checkpoint-progress{text-align:center;color:#697487;font-size:12px;margin:28px 0 12px}.checkpoint-card{background:#fff;border:1px solid var(--line);border-radius:17px;padding:28px;margin:0 0 16px}.checkpoint-card h3{font-size:19px;line-height:1.6;margin:0 0 22px}.checkpoint-options{display:grid;gap:10px}.checkpoint-option{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);padding:15px;text-align:left;font:inherit;cursor:pointer}.checkpoint-option:hover,.checkpoint-option.selected{border-color:#6673e6;background:#f1f2ff}.checkpoint-option:disabled{cursor:default}.checkpoint-option-mark{display:grid;place-items:center;width:24px;height:24px;border-radius:50%;background:#f0f1f7;color:#5968e4;font-weight:800}.checkpoint-option.selected .checkpoint-option-mark{background:#5968e4;color:#fff}.checkpoint-submit-button{display:block;min-width:180px;margin:22px auto 0}.checkpoint-result{margin-top:18px;border-radius:11px;padding:13px 15px;font-size:13px;line-height:1.6}.checkpoint-result.correct{background:#effbf7;color:#218c70}.checkpoint-result.incorrect{background:#fff5f1;color:#bc6c58}.checkpoint-result strong{display:block;margin-bottom:4px}.checkpoint-result p,.checkpoint-summary p{margin:0}.checkpoint-summary{border-radius:15px;padding:20px;text-align:center}.checkpoint-summary.correct{background:#effbf7;color:#218c70}.checkpoint-summary.incorrect{background:#fff5f1;color:#bc6c58}.checkpoint-summary strong{display:block;margin-bottom:6px}.checkpoint-summary .primary-button{margin-top:16px}.checkpoint-next-button{display:block;margin:14px auto 0}.checkpoint-page .final-feedback{margin-top:16px}
+
+/* Korean-first UI typography: use installed fonts when available and fall back safely. */
+:root {
+  --font-ui: Pretendard, "Noto Sans KR", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-math: "STIX Two Math", "Cambria Math", "Times New Roman", Georgia, serif;
+}
+
+html {
+  font-family: var(--font-ui);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-weight: 400;
+  letter-spacing: -0.012em;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+button, input, textarea, select { font-family: inherit; }
+
+h1, h2, h3, h4, strong, .brand, .brand-copy strong, .hero-copy h1, .section-intro h2, .complete-page h2 {
+  font-weight: 750;
+  letter-spacing: -0.035em;
+}
+
+.hero-copy h1, .section-intro h2, .complete-page h2 { line-height: 1.25; overflow-wrap: anywhere; }
+
+.hero-copy p, .section-intro p, .complete-page p, .feedback-card p, .feedback-card li, .checkpoint-result, .checkpoint-summary, .exploration-response > p, .hint-area p, .observation p {
+  line-height: 1.8;
+}
+
+.eyebrow, .step-labels, .progress-meta, .hint-pill, .response-meta, .attempt-count, .coefficient-heading { font-weight: 600; }
+
+.primary-button, .secondary-button, .checkpoint-option, .diagnosis-choice, .choice-card, .graph-option, .answer, .final-choice, .supabase-check-button, .hint-button { font-weight: 650; }
+
+.primary-button, .secondary-button, .checkpoint-submit-button, .final-submit-button, .checkpoint-next-button { white-space: nowrap; }
+
+.final-formula, .challenge-visual strong, .graph-caption b, .coefficient-snapshot, .function-graph {
+  font-family: var(--font-math);
+  font-variant-numeric: lining-nums;
+}
+
+.final-formula, .challenge-visual strong { font-style: italic; letter-spacing: 0; }
+
+.exploration-response textarea, .student-code-form input, .coefficient-inputs input { line-height: 1.7; }
+
+@media (max-width: 700px) {
+  .hero-copy h1, .complete-page h2 { font-size: clamp(2rem, 9vw, 2.35rem); line-height: 1.3; }
+  .section-intro h2 { font-size: clamp(1.65rem, 7vw, 2rem); line-height: 1.35; }
+  .primary-button, .secondary-button { font-size: 13px; padding-inline: 17px; }
+  .choice-card, .graph-option, .diagnosis-choice, .checkpoint-option { line-height: 1.65; }
+}

@@ -30,6 +30,17 @@ export type ExplorationFeedback = {
   hint: string;
 };
 
+export type ExplorationStageFeedback = {
+  stage: number;
+  strengths: string[];
+  improvements: string[];
+  nextQuestion: string;
+};
+
+export type AggregateExplorationFeedback = {
+  feedback: ExplorationStageFeedback[];
+};
+
 export type ExplorationFeedbackResult = {
   ok: boolean;
   message: string;
@@ -53,6 +64,14 @@ export type ExplorationResultsLoadResult = {
   ok: boolean;
   message: string;
   results?: SavedExplorationResult[];
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
+export type AggregateExplorationFeedbackResult = {
+  ok: boolean;
+  message: string;
+  feedback?: AggregateExplorationFeedback;
+  feedbackStatus?: string;
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
@@ -211,5 +230,30 @@ export async function saveExplorationFeedback(input: {
     return await response.json() as ExplorationFeedbackResult;
   } catch (error) {
     return { ok: false, message: "탐구 결과를 저장하지 못했습니다.", error: { message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+export async function aggregateExplorationFeedback(input: {
+  sessionId: string;
+  explorations: Array<{
+    stage: number;
+    path: "A" | "B" | "C";
+    promptId: string;
+    question: string;
+    studentResponse: string;
+    coefficientSnapshot: { a: number; b: number; c: number };
+    coreConcept: string;
+  }>;
+}): Promise<AggregateExplorationFeedbackResult> {
+  try {
+    const response = await fetch("/api/exploration-feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mode: "aggregate", ...input }),
+      cache: "no-store",
+    });
+    return await response.json() as AggregateExplorationFeedbackResult;
+  } catch (error) {
+    return { ok: false, message: "탐구 결과 종합 피드백을 불러오지 못했습니다.", error: { message: error instanceof Error ? error.message : String(error) } };
   }
 }

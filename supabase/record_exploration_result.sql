@@ -150,6 +150,31 @@ $$;
 revoke all on function public.get_exploration_results(uuid) from public;
 grant execute on function public.get_exploration_results(uuid) to anon, authenticated;
 
+create or replace function public.update_exploration_feedback(
+  p_session_id uuid,
+  p_prompt_id text,
+  p_ai_feedback jsonb,
+  p_feedback_status text
+)
+returns boolean
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.exploration_results as er
+  set ai_feedback = p_ai_feedback,
+      feedback_status = p_feedback_status,
+      feedback_created_at = pg_catalog.now()
+  where er.session_id = p_session_id
+    and er.prompt_id = p_prompt_id;
+  return found;
+end;
+$$;
+
+revoke all on function public.update_exploration_feedback(uuid, text, jsonb, text) from public;
+grant execute on function public.update_exploration_feedback(uuid, text, jsonb, text) to anon, authenticated;
+
 -- 실행 후 새 시그니처가 등록되었는지 확인합니다.
 select
   n.nspname as schema_name,

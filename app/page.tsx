@@ -1,14 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkSupabaseConnection, loadExplorationResults, saveCheckpointAttempt, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
+import { aggregateExplorationFeedback, checkSupabaseConnection, loadExplorationResults, saveCheckpointAttempt, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type AggregateExplorationFeedback, type ExplorationFeedback } from "../lib/supabase/client";
 
 type Step = "start" | "diagnosis" | "explore" | "checkpoint" | "feedback" | "challenge" | "complete";
 
 const graphOptions = [
-  { id: "A", title: "A 그래프", formula: "y = x²", note: "위로 열리고 꼭짓점은 (0, 0)" },
+  { id: "A", title: "1단계 탐구 그래프", formula: "y = x²", note: "아래로 볼록, 꼭짓점은 (0, 0)" },
   { id: "B", title: "B 그래프", formula: "y = (x - 2)² - 1", note: "오른쪽으로 2, 아래로 1 이동" },
-  { id: "C", title: "C 그래프", formula: "y = -x² + 2", note: "아래로 열리고 꼭짓점은 (0, 2)" },
+  { id: "C", title: "3단계 탐구 그래프", formula: "y = -x² + 2", note: "위로 볼록, 꼭짓점은 (0, 2)" },
 ];
 
 type GeoGebraApi = {
@@ -55,7 +55,7 @@ function getCheckpointQuestions(path: PathId, studentCode: string, sessionId: st
   if (path === "A") {
     const magnitude = seed % 2 === 0 ? 2 : 3;
     return [
-      { questionId: "checkpoint-a-direction", prompt: `a=${magnitude}일 때 그래프는 어느 방향으로 열리나요?`, options: [{ id: "up", label: "위로 열림" }, { id: "down", label: "아래로 열림" }, { id: "line", label: "직선이 됨" }], correctOptionId: "up", explanation: "a가 양수이면 포물선은 위로 열립니다.", questionParameters: { templateId: "a-direction", variantSeed: seed, a: magnitude } },
+      { questionId: "checkpoint-a-direction", prompt: `a=${magnitude}일 때 그래프는 어떻게 볼록한가요?`, options: [{ id: "up", label: "아래로 볼록" }, { id: "down", label: "위로 볼록" }, { id: "line", label: "직선이 됨" }], correctOptionId: "up", explanation: "a가 양수이면 그래프는 아래로 볼록입니다.", questionParameters: { templateId: "a-direction", variantSeed: seed, a: magnitude } },
       { questionId: "checkpoint-a-width", prompt: `|a|=${magnitude}인 그래프는 y=x²보다 어떻게 보이나요?`, options: [{ id: "narrow", label: "더 좁게 보임" }, { id: "same", label: "같은 폭으로 보임" }, { id: "wide", label: "더 넓게 보임" }], correctOptionId: "narrow", explanation: "|a|가 1보다 크면 y=x²보다 좁게 보입니다.", questionParameters: { templateId: "a-width", variantSeed: seed, a: magnitude, baselineA: 1 } },
     ];
   }
@@ -70,7 +70,7 @@ function getCheckpointQuestions(path: PathId, studentCode: string, sessionId: st
   }
   return [
     { questionId: "checkpoint-c-intercept", prompt: "c는 그래프의 어떤 특징을 결정하나요?", options: [{ id: "direction", label: "개방 방향" }, { id: "intercept", label: "y절편" }, { id: "width", label: "그래프의 폭" }], correctOptionId: "intercept", explanation: "x=0일 때 y=c이므로 c는 y절편입니다.", questionParameters: { templateId: "abc-intercept", variantSeed: seed, a: 2, b: -4, c: 1, yIntercept: 1 } },
-    { questionId: "checkpoint-c-summary", prompt: "a=2, b=-4, c=1인 그래프의 설명으로 알맞은 것은 무엇인가요?", options: [{ id: "correct", label: "위로 열리고, 좁으며, 꼭짓점 (1,-1), y절편 1" }, { id: "wrong-direction", label: "아래로 열리고, 꼭짓점 (1,-1)" }, { id: "wrong-intercept", label: "위로 열리고, y절편 3" }], correctOptionId: "correct", explanation: "a, b, c를 각각 방향·폭·꼭짓점·대칭축·y절편과 연결합니다.", questionParameters: { templateId: "abc-summary", variantSeed: seed, a: 2, b: -4, c: 1, vertex: { x: 1, y: -1 }, axis: "x = 1", yIntercept: 1 } },
+    { questionId: "checkpoint-c-summary", prompt: "a=2, b=-4, c=1인 그래프의 설명으로 알맞은 것은 무엇인가요?", options: [{ id: "correct", label: "아래로 볼록하고, 좁으며, 꼭짓점 (1,-1), y절편 1" }, { id: "wrong-direction", label: "위로 볼록하고, 꼭짓점 (1,-1)" }, { id: "wrong-intercept", label: "아래로 볼록하고, y절편 3" }], correctOptionId: "correct", explanation: "a, b, c를 각각 방향·폭·꼭짓점·대칭축·y절편과 연결합니다.", questionParameters: { templateId: "abc-summary", variantSeed: seed, a: 2, b: -4, c: 1, vertex: { x: 1, y: -1 }, axis: "x = 1", yIntercept: 1 } },
   ];
 }
 
@@ -117,7 +117,7 @@ type DiagnosisQuestion = {
 };
 
 const diagnosisQuestions: DiagnosisQuestion[] = [
-  { id: "direction", prompt: "a가 음수인 이차함수 그래프의 방향은 무엇인가요?", choices: [{ id: "up", label: "위로 열림" }, { id: "down", label: "아래로 열림" }, { id: "line", label: "직선이 됨" }], correct: "down" },
+  { id: "direction", prompt: "a가 음수인 이차함수 그래프는 어떻게 볼록한가요?", choices: [{ id: "up", label: "위로 볼록" }, { id: "down", label: "아래로 볼록" }, { id: "line", label: "직선이 됨" }], correct: "up" },
   { id: "width", prompt: "y = 3x²는 y = x²와 비교해 어떻게 보이나요?", choices: [{ id: "wide", label: "더 넓게 보임" }, { id: "same", label: "같은 폭으로 보임" }, { id: "narrow", label: "더 좁게 보임" }], correct: "narrow" },
   { id: "axis", prompt: "y = x² - 4x의 대칭축은 어디인가요?", choices: [{ id: "minus2", label: "x = -2" }, { id: "two", label: "x = 2" }, { id: "four", label: "x = 4" }], correct: "two" },
   { id: "intercept", prompt: "y = 2x² - 3x + 5의 y절편은 무엇인가요?", choices: [{ id: "minus3", label: "-3" }, { id: "2", label: "2" }, { id: "5", label: "5" }], correct: "5" },
@@ -279,7 +279,7 @@ export default function Home() {
   const [currentPath, setCurrentPath] = useState<PathId | null>(null);
   const [assignedAt, setAssignedAt] = useState<string | null>(null);
   const [explorationResults, setExplorationResults] = useState<Record<PathId, ExplorationRecord[]>>({ A: [], B: [], C: [] });
-  const [explorationFeedback, setExplorationFeedback] = useState<ExplorationFeedback | null>(null);
+  const [explorationFeedback, setExplorationFeedback] = useState<AggregateExplorationFeedback | null>(null);
   const [finalChoiceId, setFinalChoiceId] = useState<string | null>(null);
   const [finalFeedback, setFinalFeedback] = useState<string | null>(null);
   const [finalAttempts, setFinalAttempts] = useState(0);
@@ -333,9 +333,11 @@ export default function Home() {
       for (const item of result.results) {
         grouped[item.path].push({ path: item.path, promptId: item.promptId, responseText: item.responseText, coefficientSnapshot: item.coefficientSnapshot, writtenAt: item.writtenAt });
       }
-      const latest = result.results[0];
       setExplorationResults(grouped);
-      setExplorationFeedback(latest?.feedback ?? null);
+      const stageFeedback = result.results
+        .flatMap((item) => item.feedback ? [{ stage: item.path === "A" ? 1 : item.path === "B" ? 2 : 3, strengths: item.feedback.strengths, improvements: item.feedback.improvements, nextQuestion: item.feedback.nextQuestion }] : [])
+        .sort((a, b) => a.stage - b.stage);
+      if (stageFeedback.length === 3) setExplorationFeedback({ feedback: stageFeedback.map(({ stage, strengths, improvements, nextQuestion }) => ({ stage, strengths, improvements, nextQuestion })) });
     });
     return () => { cancelled = true; };
   }, [sessionHydrated, sessionId]);
@@ -374,9 +376,8 @@ export default function Home() {
       return { ok: false, message: "탐구 결과를 저장하지 못했습니다.", error: { message: "현재 GeoGebra 계수값(coefficientSnapshot)이 없어 저장할 수 없습니다.", code: "INVALID_INPUT" } };
     }
     const result = await saveExplorationFeedback({ sessionId, path: record.path, promptId: record.promptId, studentResponse: record.responseText, coefficientSnapshot: { a: snapshot.a, b: snapshot.b, c: snapshot.c } });
-    if (result.ok && result.feedback) {
+    if (result.ok) {
       setExplorationResults((current) => ({ ...current, [record.path]: [...current[record.path], record] }));
-      setExplorationFeedback(result.feedback);
       setStep("checkpoint");
     }
     return result;
@@ -429,6 +430,30 @@ export default function Home() {
     else if (step === "challenge" && challengeDone) { setCompletedAt(new Date().toISOString()); setStep("complete"); }
   };
 
+  const advanceFromCheckpoint = async () => {
+    if (currentPath === "A") { setCurrentPath("B"); setStep("explore"); return; }
+    if (currentPath === "B") { setCurrentPath("C"); setStep("explore"); return; }
+    const loaded = await loadExplorationResults(sessionId);
+    const rows = loaded.ok && loaded.results ? loaded.results : Object.values(explorationResults).flat().map((item) => ({ ...item, feedback: null }));
+    const ordered = (["A", "B", "C"] as PathId[]).map((path, index) => rows.find((item) => item.path === path));
+    if (ordered.every(Boolean)) {
+      const aggregate = await aggregateExplorationFeedback({
+        sessionId,
+        explorations: ordered.map((item, index) => ({
+          stage: index + 1,
+          path: item!.path,
+          promptId: item!.promptId,
+          question: explorationPrompts[item!.path].question,
+          studentResponse: item!.responseText,
+          coefficientSnapshot: item!.coefficientSnapshot,
+          coreConcept: index === 0 ? "a의 부호와 |a|가 그래프의 볼록한 방향과 폭에 미치는 영향" : index === 1 ? "a와 b가 꼭짓점과 대칭축에 미치는 영향" : "a, b, c의 종합 해석과 y절편",
+        })),
+      });
+      if (aggregate.ok && aggregate.feedback) setExplorationFeedback(aggregate.feedback);
+    }
+    setStep("feedback");
+  };
+
   return (
     <main className="app-shell">
       <header className="topbar">
@@ -453,8 +478,8 @@ export default function Home() {
         {step === "start" && <StudentCodeStartScreenV2 onStart={startSession} />}
         {step === "diagnosis" && <DiagnosisScreen index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
-        {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => { if (currentPath === "A") { setCurrentPath("B"); setStep("explore"); } else if (currentPath === "B") { setCurrentPath("C"); setStep("explore"); } else { setStep("feedback"); } }} onRetry={() => setStep("explore")} />}
-        {step === "feedback" && <ExplorationFeedbackScreen records={explorationResults[currentPath ?? "A"]} feedback={explorationFeedback} onNext={goNext} />}
+        {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} onRetry={() => setStep("explore")} />}
+        {step === "feedback" && <ExplorationFeedbackScreen results={explorationResults} feedback={explorationFeedback} onNext={goNext} />}
         {step === "challenge" && <FinalChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
         {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
       </section>
@@ -727,7 +752,15 @@ function CheckpointScreen({ path, studentCode, sessionId, onAdvance, onRetry }: 
   return <div className="question-page checkpoint-page"><div className="section-intro"><span className="eyebrow">탐구 확인 문제</span><h2>방금 관찰한 내용을 확인해봅시다.</h2><p>두 문제를 모두 맞히면 다음 활동으로 이동합니다.</p></div><div className="checkpoint-progress">확인문제 {questionIndex + 1} / {questions.length}</div><article className="checkpoint-card"><h3>{question.prompt}</h3><div className="checkpoint-options">{question.options.map((option) => <button type="button" key={option.id} className={`checkpoint-option ${selectedAnswer === option.id ? "selected" : ""}`} disabled={saving || questionResult !== null} onClick={() => { setSelectedAnswer(option.id); setSaveError(null); }}><span className="checkpoint-option-mark">{option.id === selectedAnswer ? "✓" : ""}</span><span>{option.label}</span></button>)}</div><button type="button" className="primary-button checkpoint-submit-button" disabled={!selectedOption || saving || questionResult !== null} onClick={() => void submitAnswer()}>{saving ? "제출 중..." : "제출하기"} <span>→</span></button>{saveError && <div className="final-feedback error" role="alert">{saveError}</div>}{questionResult !== null && <div className={`checkpoint-result ${questionResult ? "correct" : "incorrect"}`} role="status"><strong>{questionResult ? "정답입니다." : "다시 생각해봅시다."}</strong><p>{question.explanation}</p></div>}</article>{finished ? <div className={`checkpoint-summary ${allCorrect ? "correct" : "incorrect"}`} role="status"><strong>{allCorrect ? "두 문제를 모두 맞혔습니다." : "한 문제 이상 다시 확인해봅시다."}</strong><p>{allCorrect ? "다음 탐구 활동으로 이동합니다." : "틀린 개념을 다시 살펴본 뒤 같은 탐구를 다시 해보세요."}</p><button type="button" className="primary-button" onClick={allCorrect ? onAdvance : onRetry}>{allCorrect ? (path === "C" ? "탐구 결과 피드백 보기" : "다음 탐구로 이동") : "다시 탐구해보기"} <span>→</span></button></div> : questionResult !== null && <button type="button" className="secondary-button checkpoint-next-button" onClick={continueCheckpoint}>다음 확인문제 <span>→</span></button>}</div>;
 }
 
-function ExplorationFeedbackScreen({ records, feedback, onNext }: { records: ExplorationRecord[]; feedback: ExplorationFeedback | null; onNext: () => void }) {
+function ExplorationFeedbackScreen({ results, feedback, onNext }: { results: Record<PathId, ExplorationRecord[]>; feedback: AggregateExplorationFeedback | null; onNext: () => void }) {
+  const feedbackList = Array.isArray(feedback?.feedback) ? feedback.feedback : [];
+  const stages = (["A", "B", "C"] as PathId[]).map((path, index) => ({ path, stage: index + 1, record: results[path][results[path].length - 1], feedback: feedbackList.find((item) => item.stage === index + 1) }));
+  const hasResults = stages.some((item) => item.record);
+  const fallback = (stage: number) => stage === 1 ? { strengths: ["a와 그래프의 변화를 관찰했습니다."], improvements: ["a가 양수이면 그래프는 아래로 볼록이고, 음수이면 위로 볼록입니다."], nextQuestion: "|a|의 크기는 그래프의 폭에 어떤 영향을 줄까요?" } : stage === 2 ? { strengths: ["a와 b의 변화를 꼭짓점과 연결하려고 했습니다."], improvements: ["대칭축 x = -b/(2a)와 꼭짓점의 관계를 확인해보세요."], nextQuestion: "b가 바뀌면 대칭축은 어떻게 이동할까요?" } : { strengths: ["a, b, c와 그래프 특징을 종합적으로 살펴보았습니다."], improvements: ["x=0을 대입해 c와 y절편의 관계를 확인해보세요."], nextQuestion: "세 계수가 그래프에 미치는 영향을 한 문장으로 설명해볼까요?" };
+  return <div className="question-page exploration-feedback-page"><div className="section-intro"><span className="eyebrow">탐구 결과 종합 피드백</span><h2>세 단계 탐구를 함께 돌아봅시다.</h2><p>각 탐구에서 작성한 답변과 관찰 내용을 순서대로 확인해봅시다.</p></div>{!hasResults ? <div className="feedback-empty" role="status"><strong>아직 저장된 탐구 결과가 없습니다.</strong><p>탐구 답변을 작성하고 저장하면 단계별 피드백이 표시됩니다.</p></div> : <div className="feedback-card-list">{stages.map(({ stage, record, feedback: stageFeedback }) => { const safe = stageFeedback ?? fallback(stage); return <article className="feedback-card" key={stage}><span className="eyebrow">{stage}단계 탐구</span><h3>탐구 질문</h3><p>{record ? explorationPrompts[record.path].question : "아직 저장된 탐구 결과가 없습니다."}</p>{record && <><h3>학생의 서술형 답변</h3><p className="student-response">{record.responseText}</p><p className="coefficient-snapshot">현재 계수 · a={record.coefficientSnapshot.a}, b={record.coefficientSnapshot.b}, c={record.coefficientSnapshot.c}</p></>}<h3>잘한 점</h3><ul>{safe.strengths.map((item) => <li key={item}>{item}</li>)}</ul><h3>보완할 점</h3><ul>{safe.improvements.map((item) => <li key={item}>{item}</li>)}</ul><h3>다시 생각해볼 질문</h3><p>{safe.nextQuestion}</p></article>; })}</div>}<section className="feedback-card feedback-summary"><h3>이번 탐구에서 발견한 점</h3><ul><li>a는 그래프의 볼록한 방향과 폭에 영향을 줍니다. a가 양수이면 그래프는 아래로 볼록이고, 음수이면 위로 볼록입니다.</li><li>b는 꼭짓점의 위치와 대칭축에 영향을 줍니다.</li><li>c는 y절편에 영향을 줍니다.</li><li>a, b, c와 방향, 폭, 꼭짓점, 대칭축, y절편을 연결한 점을 확인했습니다.</li><li>최종 미션 전에 |a|가 클수록 더 뾰족하고, 작을수록 더 넓어진다는 점을 다시 확인해보세요.</li></ul></section><button className="primary-button" onClick={onNext}>최종 미션 도전하기 <span>→</span></button></div>;
+}
+
+function LegacyExplorationFeedbackScreen({ records, feedback, onNext }: { records: ExplorationRecord[]; feedback: ExplorationFeedback | null; onNext: () => void }) {
   const latest = records[records.length - 1];
   if (!latest) return <div className="question-page exploration-feedback-page"><div className="section-intro"><span className="eyebrow">탐구 결과 피드백</span><h2>탐구 결과를 확인해보세요.</h2><p>아직 저장된 탐구 결과가 없습니다.</p></div><div className="feedback-empty" role="status"><strong>탐구 답변이 아직 없어요.</strong><p>탐구 답변을 작성하고 저장하면 학생 답변과 계수별 피드백이 여기에 표시됩니다.</p></div><button className="primary-button" onClick={onNext}>최종 미션 도전하기 <span>→</span></button></div>;
   const safeFeedback = feedback ?? { strengths: ["작성한 내용을 확인했습니다."], improvements: ["그래프의 특징과 계수의 관계를 다시 연결해보세요."], nextQuestion: "계수를 바꾸면 그래프의 어떤 특징이 달라졌나요?", hint: "식의 a, b, c를 그래프의 방향, 폭, 꼭짓점, 대칭축, y절편과 연결해보세요." };
