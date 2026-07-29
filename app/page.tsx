@@ -29,6 +29,8 @@ type QuadraticValues = { a: number; b: number; c: number };
 type PathId = "A" | "B" | "C";
 type CoefficientChange = QuadraticValues & { path: PathId; changedAt: string };
 type ExplorationRecord = { path: PathId; promptId: string; responseText: string; coefficientSnapshot: QuadraticValues; writtenAt: string };
+type LearningSession = { studentCode: string; sessionId: string; startedAt: string };
+const SESSION_STORAGE_KEY = "graph-reader-learning-session";
 type ExplorationPrompt = { promptId: string; question: string; support: string };
 
 const explorationPrompts: Record<PathId, ExplorationPrompt> = {
@@ -229,6 +231,11 @@ function GeoGebraGraph({ path = "C", onCoefficientChange }: { path?: PathId; onC
 
 export default function Home() {
   const [step, setStep] = useState<Step>("start");
+  const [studentCode, setStudentCode] = useState("");
+  const [sessionId, setSessionId] = useState("");
+  const [startedAt, setStartedAt] = useState("");
+  const [completedAt, setCompletedAt] = useState("");
+  const [sessionHydrated, setSessionHydrated] = useState(false);
   const [diagnosisIndex, setDiagnosisIndex] = useState(0);
   const [diagnosisAnswers, setDiagnosisAnswers] = useState<Record<string, { answer: string; shownAt: string; submittedAt: string }>>({});
   const [diagnosisResults, setDiagnosisResults] = useState<Record<string, boolean>>({});
@@ -242,6 +249,58 @@ export default function Home() {
   const [finalAttempts, setFinalAttempts] = useState(0);
   const [challengeDone, setChallengeDone] = useState(false);
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(SESSION_STORAGE_KEY);
+      if (saved) {
+        const session = JSON.parse(saved) as Partial<ReturnType<typeof getPersistedSession>>;
+        if (session.studentCode && session.sessionId && session.startedAt) {
+          setStudentCode(session.studentCode);
+          setSessionId(session.sessionId);
+          setStartedAt(session.startedAt);
+          setCompletedAt(session.completedAt ?? "");
+          setStep(session.step ?? "start");
+          setDiagnosisIndex(session.diagnosisIndex ?? 0);
+          setDiagnosisAnswers(session.diagnosisAnswers ?? {});
+          setDiagnosisResults(session.diagnosisResults ?? {});
+          setResponseTimes(session.responseTimes ?? {});
+          setShownAtByQuestion(session.shownAtByQuestion ?? {});
+          setCurrentPath(session.currentPath ?? null);
+          setAssignedAt(session.assignedAt ?? null);
+          setExplorationResults(session.explorationResults ?? { A: [], B: [], C: [] });
+          setFinalChoiceId(session.finalChoiceId ?? null);
+          setFinalFeedback(session.finalFeedback ?? null);
+          setFinalAttempts(session.finalAttempts ?? 0);
+          setChallengeDone(session.challengeDone ?? false);
+        }
+      }
+    } catch {
+      window.localStorage.removeItem(SESSION_STORAGE_KEY);
+    } finally {
+      setSessionHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!sessionHydrated || !studentCode || !sessionId || !startedAt) return;
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(getPersistedSession()));
+  }, [sessionHydrated, studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, finalChoiceId, finalFeedback, finalAttempts, challengeDone]);
+
+  function getPersistedSession() {
+    return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
+  }
+
+  const startSession = (value: string) => {
+    const normalized = value.trim().toUpperCase();
+    if (!/^[A-Z0-9]{4,12}$/.test(normalized)) return false;
+    setStudentCode(normalized);
+    setSessionId(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    setStartedAt(new Date().toISOString());
+    setCompletedAt("");
+    setStep("diagnosis");
+    return true;
+  };
+
   const progress = useMemo(
     () => ({ start: 0, diagnosis: 25, explore: 50, challenge: 75, complete: 100 })[step],
     [step],
@@ -251,12 +310,13 @@ export default function Home() {
     if (step === "start") setStep("diagnosis");
     else if (step === "diagnosis") setStep("explore");
     else if (step === "explore") setStep("challenge");
-    else if (step === "challenge" && challengeDone) setStep("complete");
+    else if (step === "challenge" && challengeDone) { setCompletedAt(new Date().toISOString()); setStep("complete"); }
   };
 
   return (
     <main className="app-shell">
       <header className="topbar">
+        {studentCode && <span className="student-code-chip">학습 코드 {studentCode}</span>}
         <div className="brand"><span className="brand-mark">g</span><span className="brand-copy"><strong>그래프 리더</strong><small>Graph Reader · Graph Leader</small></span></div>
         <div className="topbar-right"><span className="save-dot" /> 기기에서 진행 중 <span className="avatar">민</span></div>
       </header>
@@ -274,15 +334,41 @@ export default function Home() {
       </section>
 
       <section className="content">
-        {step === "start" && <StartScreen onNext={goNext} />}
+        {step === "start" && <StudentCodeStartScreen onStart={startSession} />}
         {step === "diagnosis" && <DiagnosisScreen index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={(record) => setExplorationResults((current) => ({ ...current, [record.path]: [...current[record.path], record] }))} onNext={goNext} />}
         {step === "challenge" && <ChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); if (choice.isCorrect) { setChallengeDone(true); setFinalFeedback("정확합니다. a, b, c의 값을 그래프의 방향, 폭, 꼭짓점, y절편과 연결해 해석했습니다."); } else { setChallengeDone(false); const feedback = choice.errorType === "direction" ? "a의 부호를 다시 확인해보세요." : choice.errorType === "width" ? "|a|의 크기가 그래프의 폭에 어떤 영향을 주는지 살펴보세요." : choice.errorType === "vertex" ? "대칭축 x=1과 꼭짓점 (1,-1)을 확인해보세요." : "x=0일 때 y의 값을 계산해보세요."; setFinalFeedback(feedback); } }} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); setFinalAttempts((current) => current + 1); }} onNext={goNext} />}
-        {step === "complete" && <CompleteScreen onRestart={() => { setStep("start"); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
+        {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
       </section>
 
       <footer>학습 기록은 현재 이 브라우저에서만 임시로 유지됩니다 · 저장 기능은 다음 단계에서 연결할 예정이에요.</footer>
     </main>
+  );
+}
+
+function StudentCodeStartScreen({ onStart }: { onStart: (code: string) => boolean }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const normalized = code.trim().toUpperCase();
+  const isValid = /^[A-Z0-9]{4,12}$/.test(normalized);
+
+  const submit = () => {
+    if (!normalized) { setError("학습 코드를 입력해주세요."); return; }
+    if (!isValid) { setError("영문 대문자와 숫자를 조합해 4~12자로 입력해주세요."); return; }
+    if (!onStart(normalized)) setError("학습 코드를 확인해주세요.");
+  };
+
+  return (
+    <div className="hero-grid">
+      <div className="hero-copy">
+        <span className="eyebrow">오늘의 맞춤 미션 · 10분</span>
+        <h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1>
+        <p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p>
+        <div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><strong>Leader</strong> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div>
+        <div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") submit(); }} aria-describedby={error ? "student-code-error" : undefined} />{error && <span id="student-code-error" className="student-code-error" role="alert">{error}</span>}<button className="primary-button" onClick={submit}>학습 시작하기 <span>→</span></button></div>
+      </div>
+      <div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div>
+    </div>
   );
 }
 
@@ -425,6 +511,7 @@ function ChallengeScreen({ selected, feedback, attempts, done, onSelect, onRetry
   );
 }
 
-function CompleteScreen({ onRestart }: { onRestart: () => void }) {
-  return <div className="complete-page"><div className="confetti">✦　✧　✦</div><div className="complete-icon">✓</div><span className="eyebrow">GRAPH LEADER</span><h2>그래프 리더 미션을<br /><em>완료했습니다.</em></h2><p>함수식의 계수를 읽고,<br />그래프의 변화를 직접 이끌어냈습니다.</p><div className="result-card"><div><span>완료한 미션</span><strong>그래프 리더</strong></div><div><span>획득한 배지</span><strong>첫 그래프 탐험가 🏅</strong></div></div><button className="secondary-button" onClick={onRestart}>처음부터 다시 해보기</button></div>;
+function CompleteScreen({ studentCode, completedAt, onRestart }: { studentCode: string; completedAt: string; onRestart: () => void }) {
+  const formattedCompletedAt = completedAt ? new Date(completedAt).toLocaleString("ko-KR") : "";
+  return <div className="complete-page"><div className="confetti">✦　✧　✦</div><div className="complete-icon">✓</div><span className="eyebrow">GRAPH LEADER</span><h2>그래프 리더 미션을<br /><em>완료했습니다.</em></h2><p>함수식의 계수를 읽고,<br />그래프의 변화를 직접 이끌어냈습니다.</p><div className="result-card"><div><span>학습 코드</span><strong>{studentCode}</strong></div><div><span>완료 시각</span><strong>{formattedCompletedAt}</strong></div></div><p className="completion-message">학습 코드 {studentCode}의 미션이 완료되었습니다.</p><button className="secondary-button" onClick={onRestart}>처음부터 다시 해보기</button></div>;
 }
