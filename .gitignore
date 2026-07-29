@@ -18,7 +18,8 @@ node_modules/
 /.next/
 /.vinext/
 /out/
-/build/
+/build/*
+!/build/sites-vite-plugin.ts
 
 # misc
 .DS_Store
