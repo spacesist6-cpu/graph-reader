@@ -67,6 +67,15 @@ export type FinalChallengeAttemptResult = {
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
+export type CheckpointAttemptResult = {
+  ok: boolean;
+  message: string;
+  attemptId?: string;
+  attemptNumber?: number;
+  isCorrect?: boolean;
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 export const supabase: SupabaseClient | null = isSupabaseConfigured ? createClient(supabaseUrl, supabasePublishableKey) : null;
 
@@ -151,6 +160,33 @@ export async function saveFinalChallengeAttempt(input: {
     return {
       ok: false,
       message: "최종 미션 답안을 저장하지 못했습니다.",
+      error: { message: error instanceof Error ? error.message : String(error) },
+    };
+  }
+}
+
+export async function saveCheckpointAttempt(input: {
+  sessionId: string;
+  path: "A" | "B" | "C";
+  questionId: string;
+  questionVersion: string;
+  questionParameters: Record<string, unknown>;
+  studentAnswer: string;
+  isCorrect: boolean;
+  responseTimeMs: number;
+}): Promise<CheckpointAttemptResult> {
+  try {
+    const response = await fetch("/api/checkpoints", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    return await response.json() as CheckpointAttemptResult;
+  } catch (error) {
+    return {
+      ok: false,
+      message: "확인문제 답안을 저장하지 못했습니다.",
       error: { message: error instanceof Error ? error.message : String(error) },
     };
   }

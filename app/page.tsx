@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkSupabaseConnection, loadExplorationResults, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
+import { checkSupabaseConnection, loadExplorationResults, saveCheckpointAttempt, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type ExplorationFeedback } from "../lib/supabase/client";
 
-type Step = "start" | "diagnosis" | "explore" | "feedback" | "challenge" | "complete";
+type Step = "start" | "diagnosis" | "explore" | "checkpoint" | "feedback" | "challenge" | "complete";
 
 const graphOptions = [
   { id: "A", title: "A 그래프", formula: "y = x²", note: "위로 열리고 꼭짓점은 (0, 0)" },
@@ -40,6 +40,39 @@ const explorationPrompts: Record<PathId, ExplorationPrompt> = {
   B: { promptId: "explore-b", question: "a와 b의 값을 바꾸면 그래프의 모양, 꼭짓점, 대칭축은 어떻게 변하는가?", support: "b가 변할 때 대칭축은 어떻게 움직이는가?" },
   C: { promptId: "explore-c", question: "a, b, c를 바꾸면 그래프의 방향, 폭, 꼭짓점, 대칭축, y절편은 어떻게 변하는가?", support: "각 계수는 그래프의 어떤 특징에 영향을 주는가?" },
 };
+
+type CheckpointOption = { id: string; label: string };
+type CheckpointQuestion = { questionId: string; prompt: string; options: CheckpointOption[]; correctOptionId: string; explanation: string; questionParameters: Record<string, unknown> };
+
+function createVariantSeed(studentCode: string, sessionId: string, questionId: string) {
+  let hash = 2166136261;
+  for (const character of `${studentCode}:${sessionId}:${questionId}`) hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
+  return hash >>> 0;
+}
+
+function getCheckpointQuestions(path: PathId, studentCode: string, sessionId: string): CheckpointQuestion[] {
+  const seed = createVariantSeed(studentCode, sessionId, `checkpoint-${path}`);
+  if (path === "A") {
+    const magnitude = seed % 2 === 0 ? 2 : 3;
+    return [
+      { questionId: "checkpoint-a-direction", prompt: `a=${magnitude}일 때 그래프는 어느 방향으로 열리나요?`, options: [{ id: "up", label: "위로 열림" }, { id: "down", label: "아래로 열림" }, { id: "line", label: "직선이 됨" }], correctOptionId: "up", explanation: "a가 양수이면 포물선은 위로 열립니다.", questionParameters: { templateId: "a-direction", variantSeed: seed, a: magnitude } },
+      { questionId: "checkpoint-a-width", prompt: `|a|=${magnitude}인 그래프는 y=x²보다 어떻게 보이나요?`, options: [{ id: "narrow", label: "더 좁게 보임" }, { id: "same", label: "같은 폭으로 보임" }, { id: "wide", label: "더 넓게 보임" }], correctOptionId: "narrow", explanation: "|a|가 1보다 크면 y=x²보다 좁게 보입니다.", questionParameters: { templateId: "a-width", variantSeed: seed, a: magnitude, baselineA: 1 } },
+    ];
+  }
+  if (path === "B") {
+    const axis = seed % 2 === 0 ? 1 : 2;
+    const a = 2;
+    const b = -2 * a * axis;
+    return [
+      { questionId: "checkpoint-b-change", prompt: "a와 b를 바꾸면 그래프의 어떤 특징이 달라질 수 있나요?", options: [{ id: "position", label: "꼭짓점과 대칭축의 위치" }, { id: "yIntercept", label: "y절편만" }, { id: "none", label: "아무것도 달라지지 않음" }], correctOptionId: "position", explanation: "a와 b는 대칭축과 꼭짓점의 위치에 영향을 줍니다.", questionParameters: { templateId: "ab-change", variantSeed: seed, a, b, axis } },
+      { questionId: "checkpoint-b-axis", prompt: `y=${a}x² ${b < 0 ? `- ${Math.abs(b)}x` : `+ ${b}x`}+1의 대칭축은 무엇인가요?`, options: [{ id: "axis-1", label: "x = 1" }, { id: "axis-2", label: "x = 2" }, { id: "axis-0", label: "x = 0" }], correctOptionId: axis === 1 ? "axis-1" : "axis-2", explanation: "대칭축은 x=-b/(2a)로 구합니다.", questionParameters: { templateId: "ab-axis", variantSeed: seed, a, b, axis } },
+    ];
+  }
+  return [
+    { questionId: "checkpoint-c-intercept", prompt: "c는 그래프의 어떤 특징을 결정하나요?", options: [{ id: "direction", label: "개방 방향" }, { id: "intercept", label: "y절편" }, { id: "width", label: "그래프의 폭" }], correctOptionId: "intercept", explanation: "x=0일 때 y=c이므로 c는 y절편입니다.", questionParameters: { templateId: "abc-intercept", variantSeed: seed, a: 2, b: -4, c: 1, yIntercept: 1 } },
+    { questionId: "checkpoint-c-summary", prompt: "a=2, b=-4, c=1인 그래프의 설명으로 알맞은 것은 무엇인가요?", options: [{ id: "correct", label: "위로 열리고, 좁으며, 꼭짓점 (1,-1), y절편 1" }, { id: "wrong-direction", label: "아래로 열리고, 꼭짓점 (1,-1)" }, { id: "wrong-intercept", label: "위로 열리고, y절편 3" }], correctOptionId: "correct", explanation: "a, b, c를 각각 방향·폭·꼭짓점·대칭축·y절편과 연결합니다.", questionParameters: { templateId: "abc-summary", variantSeed: seed, a: 2, b: -4, c: 1, vertex: { x: 1, y: -1 }, axis: "x = 1", yIntercept: 1 } },
+  ];
+}
 
 type GraphChoice = { id: string; formula: string; a: number; b: number; c: number; vertex: { x: number; y: number }; axis: string; yIntercept: number; isCorrect: boolean; errorType?: "direction" | "width" | "vertex" | "yIntercept" };
 const finalQuestion = {
@@ -307,6 +340,10 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [sessionHydrated, sessionId]);
 
+  useEffect(() => {
+    if (step === "explore" && currentPath && !explorationResults.A.length && !explorationResults.B.length && !explorationResults.C.length && currentPath !== "A") setCurrentPath("A");
+  }, [step, currentPath, explorationResults]);
+
   function getPersistedSession() {
     return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
   }
@@ -326,7 +363,7 @@ export default function Home() {
   };
 
   const progress = useMemo(
-    () => ({ start: 0, diagnosis: 25, explore: 50, feedback: 65, challenge: 80, complete: 100 })[step],
+    () => ({ start: 0, diagnosis: 25, explore: 50, checkpoint: 58, feedback: 70, challenge: 82, complete: 100 })[step],
     [step],
   );
 
@@ -340,7 +377,7 @@ export default function Home() {
     if (result.ok && result.feedback) {
       setExplorationResults((current) => ({ ...current, [record.path]: [...current[record.path], record] }));
       setExplorationFeedback(result.feedback);
-      setStep("feedback");
+      setStep("checkpoint");
     }
     return result;
   };
@@ -416,6 +453,7 @@ export default function Home() {
         {step === "start" && <StudentCodeStartScreenV2 onStart={startSession} />}
         {step === "diagnosis" && <DiagnosisScreen index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
+        {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => { if (currentPath === "A") { setCurrentPath("B"); setStep("explore"); } else if (currentPath === "B") { setCurrentPath("C"); setStep("explore"); } else { setStep("feedback"); } }} onRetry={() => setStep("explore")} />}
         {step === "feedback" && <ExplorationFeedbackScreen records={explorationResults[currentPath ?? "A"]} feedback={explorationFeedback} onNext={goNext} />}
         {step === "challenge" && <FinalChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
         {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
@@ -630,6 +668,63 @@ function ExploreScreen({ selected, savedResults, onSave }: { selected: PathId; s
       <div className="exploration-response"><span className="eyebrow">탐구 결과 작성</span><h3>{prompt.question}</h3><p>{prompt.support}</p><textarea value={responseText} onChange={(event) => { setResponseText(event.target.value); setSaved(false); setSaveError(null); }} placeholder="관찰한 내용을 자신의 말로 작성해보세요." rows={6} aria-label="탐구 결과 작성" /><div className="response-meta"><span>{responseText.length}자 · 최소 20자</span><span>작성 횟수: {savedResults.length}</span></div><button className="primary-button" disabled={responseText.trim().length < 20 || saving} onClick={() => void saveResponse()}>{saving ? "저장하고 분석 중..." : "탐구 결과 저장"} <span>→</span></button>{saveError && <p className="supabase-error" role="alert">{saveError}</p>}{saved && <p className="response-saved" role="status">탐구 결과를 저장했습니다. 피드백 화면으로 이동합니다.</p>}</div>
     </div>
   );
+}
+
+function CheckpointScreen({ path, studentCode, sessionId, onAdvance, onRetry }: { path: PathId; studentCode: string; sessionId: string; onAdvance: () => void; onRetry: () => void }) {
+  const questions = useMemo(() => getCheckpointQuestions(path, studentCode, sessionId), [path, studentCode, sessionId]);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [questionResult, setQuestionResult] = useState<boolean | null>(null);
+  const [results, setResults] = useState<Array<boolean | null>>([null, null]);
+  const [shownAt, setShownAt] = useState(() => Date.now());
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [finished, setFinished] = useState(false);
+  const question = questions[questionIndex];
+  const selectedOption = question.options.find((option) => option.id === selectedAnswer);
+  const allCorrect = results.every((result) => result === true);
+
+  useEffect(() => {
+    setShownAt(Date.now());
+  }, [questionIndex]);
+
+  const submitAnswer = async () => {
+    if (!selectedOption || saving || questionResult !== null) return;
+    setSaving(true);
+    setSaveError(null);
+    const result = await saveCheckpointAttempt({
+      sessionId,
+      path,
+      questionId: question.questionId,
+      questionVersion: "checkpoint-v1",
+      questionParameters: question.questionParameters,
+      studentAnswer: selectedOption.label,
+      isCorrect: selectedOption.id === question.correctOptionId,
+      responseTimeMs: Math.max(0, Date.now() - shownAt),
+    });
+    if (result.ok && typeof result.isCorrect === "boolean") {
+      setQuestionResult(result.isCorrect);
+      setResults((current) => current.map((value, index) => index === questionIndex ? result.isCorrect ?? false : value));
+      if (questionIndex === questions.length - 1) setFinished(true);
+    } else if (!result.ok) {
+      setSaveError(result.error?.message ?? result.message);
+    }
+    setSaving(false);
+  };
+
+  const continueCheckpoint = () => {
+    if (questionResult === null) return;
+    if (questionIndex < questions.length - 1) {
+      setQuestionIndex((current) => current + 1);
+      setSelectedAnswer(null);
+      setQuestionResult(null);
+      setSaveError(null);
+    } else {
+      setFinished(true);
+    }
+  };
+
+  return <div className="question-page checkpoint-page"><div className="section-intro"><span className="eyebrow">탐구 확인 문제</span><h2>방금 관찰한 내용을 확인해봅시다.</h2><p>두 문제를 모두 맞히면 다음 활동으로 이동합니다.</p></div><div className="checkpoint-progress">확인문제 {questionIndex + 1} / {questions.length}</div><article className="checkpoint-card"><h3>{question.prompt}</h3><div className="checkpoint-options">{question.options.map((option) => <button type="button" key={option.id} className={`checkpoint-option ${selectedAnswer === option.id ? "selected" : ""}`} disabled={saving || questionResult !== null} onClick={() => { setSelectedAnswer(option.id); setSaveError(null); }}><span className="checkpoint-option-mark">{option.id === selectedAnswer ? "✓" : ""}</span><span>{option.label}</span></button>)}</div><button type="button" className="primary-button checkpoint-submit-button" disabled={!selectedOption || saving || questionResult !== null} onClick={() => void submitAnswer()}>{saving ? "제출 중..." : "제출하기"} <span>→</span></button>{saveError && <div className="final-feedback error" role="alert">{saveError}</div>}{questionResult !== null && <div className={`checkpoint-result ${questionResult ? "correct" : "incorrect"}`} role="status"><strong>{questionResult ? "정답입니다." : "다시 생각해봅시다."}</strong><p>{question.explanation}</p></div>}</article>{finished ? <div className={`checkpoint-summary ${allCorrect ? "correct" : "incorrect"}`} role="status"><strong>{allCorrect ? "두 문제를 모두 맞혔습니다." : "한 문제 이상 다시 확인해봅시다."}</strong><p>{allCorrect ? "다음 탐구 활동으로 이동합니다." : "틀린 개념을 다시 살펴본 뒤 같은 탐구를 다시 해보세요."}</p><button type="button" className="primary-button" onClick={allCorrect ? onAdvance : onRetry}>{allCorrect ? (path === "C" ? "탐구 결과 피드백 보기" : "다음 탐구로 이동") : "다시 탐구해보기"} <span>→</span></button></div> : questionResult !== null && <button type="button" className="secondary-button checkpoint-next-button" onClick={continueCheckpoint}>다음 확인문제 <span>→</span></button>}</div>;
 }
 
 function ExplorationFeedbackScreen({ records, feedback, onNext }: { records: ExplorationRecord[]; feedback: ExplorationFeedback | null; onNext: () => void }) {
