@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "함수의 감각 | 이차함수 그래프 미션",
-  description: "학생이 직접 탐색하며 이차함수 그래프 감각을 익히는 맞춤형 학습 미션.",
+  title: "그래프 리더 | Graph Reader · Graph Leader",
+  description: "함수식의 계수를 읽고 그래프의 변화를 탐구하는 중학교 3학년 이차함수 맞춤형 학습 앱",
   icons: { icon: "/favicon.svg", shortcut: "/favicon.svg" },
 };
 
