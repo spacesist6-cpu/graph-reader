@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { checkSupabaseConnection, startLearningSession } from "../lib/supabase/client";
 
 type Step = "start" | "diagnosis" | "explore" | "challenge" | "complete";
 
@@ -290,15 +291,17 @@ export default function Home() {
     return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
   }
 
-  const startSession = (value: string) => {
+  const startSession = async (value: string) => {
     const normalized = value.trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,12}$/.test(normalized)) return false;
-    setStudentCode(normalized);
-    setSessionId(globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    setStartedAt(new Date().toISOString());
+    if (!/^[A-Z0-9]{4,12}$/.test(normalized)) return { ok: false, message: "학습 코드를 확인해주세요." };
+    const result = await startLearningSession(normalized);
+    if (!result.ok || !result.session) return result;
+    setStudentCode(result.session.studentCode);
+    setSessionId(result.session.sessionId);
+    setStartedAt(result.session.startedAt);
     setCompletedAt("");
     setStep("diagnosis");
-    return true;
+    return result;
   };
 
   const progress = useMemo(
@@ -334,7 +337,7 @@ export default function Home() {
       </section>
 
       <section className="content">
-        {step === "start" && <StudentCodeStartScreen onStart={startSession} />}
+        {step === "start" && <StudentCodeStartScreenV2 onStart={startSession} />}
         {step === "diagnosis" && <DiagnosisScreen index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const path = assignPath(Object.values(nextResults).filter(Boolean).length); const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={(record) => setExplorationResults((current) => ({ ...current, [record.path]: [...current[record.path], record] }))} onNext={goNext} />}
         {step === "challenge" && <ChallengeScreen selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); if (choice.isCorrect) { setChallengeDone(true); setFinalFeedback("정확합니다. a, b, c의 값을 그래프의 방향, 폭, 꼭짓점, y절편과 연결해 해석했습니다."); } else { setChallengeDone(false); const feedback = choice.errorType === "direction" ? "a의 부호를 다시 확인해보세요." : choice.errorType === "width" ? "|a|의 크기가 그래프의 폭에 어떤 영향을 주는지 살펴보세요." : choice.errorType === "vertex" ? "대칭축 x=1과 꼭짓점 (1,-1)을 확인해보세요." : "x=0일 때 y의 값을 계산해보세요."; setFinalFeedback(feedback); } }} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); setFinalAttempts((current) => current + 1); }} onNext={goNext} />}
@@ -344,6 +347,59 @@ export default function Home() {
       <footer>학습 기록은 현재 이 브라우저에서만 임시로 유지됩니다 · 저장 기능은 다음 단계에서 연결할 예정이에요.</footer>
     </main>
   );
+}
+
+function DetailedSupabaseConnectionCheck() {
+  const [status, setStatus] = useState<"idle" | "checking" | "success" | "error">("idle");
+  const [result, setResult] = useState<Awaited<ReturnType<typeof checkSupabaseConnection>> | null>(null);
+
+  const checkConnection = async () => {
+    setStatus("checking");
+    const nextResult = await checkSupabaseConnection();
+    setResult(nextResult);
+    setStatus(nextResult.ok ? "success" : "error");
+  };
+
+  return <div className="supabase-check"><button type="button" className="supabase-check-button" onClick={checkConnection} disabled={status === "checking"}>Supabase 연결 확인</button>{result && <div className={`supabase-check-message ${status}`} role="status"><p>{result.message}</p>{result.error && <dl className="supabase-error-details"><div><dt>error.message</dt><dd>{result.error.message || "-"}</dd></div><div><dt>error.code</dt><dd>{result.error.code || "-"}</dd></div><div><dt>error.details</dt><dd>{result.error.details || "-"}</dd></div><div><dt>error.hint</dt><dd>{result.error.hint || "-"}</dd></div></dl>}</div>}</div>;
+}
+
+function SupabaseConnectionCheck() {
+  const [status, setStatus] = useState<"idle" | "checking" | "success" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  const checkConnection = async () => {
+    setStatus("checking");
+    const result = await checkSupabaseConnection();
+    setStatus(result.ok ? "success" : "error");
+    setMessage(result.message);
+  };
+
+  return <div className="supabase-check"><button type="button" className="supabase-check-button" onClick={checkConnection} disabled={status === "checking"}>Supabase 연결 확인</button>{message && <p className={`supabase-check-message ${status}`} role="status">{message}</p>}</div>;
+}
+
+function StudentCodeStartScreenV2({ onStart }: { onStart: (code: string) => Promise<{ ok: boolean; message: string; error?: { message?: string; code?: string; details?: string; hint?: string } }> }) {
+  const [code, setCode] = useState("");
+  const [error, setError] = useState("");
+  const [debugError, setDebugError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const normalized = code.trim().toUpperCase();
+  const isValid = /^[A-Z0-9]{4,12}$/.test(normalized);
+
+  const submit = async () => {
+    if (!normalized) { setError("학습 코드를 입력해주세요."); return; }
+    if (!isValid) { setError("영문 대문자와 숫자를 조합해 4~12자로 입력해주세요."); return; }
+    setSaving(true);
+    setError("");
+    setDebugError("");
+    const result = await onStart(normalized);
+    if (!result.ok) {
+      setError("학습 기록을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.");
+      if (process.env.NODE_ENV !== "production") setDebugError([result.error?.message, result.error?.code, result.error?.details, result.error?.hint].filter(Boolean).join(" | "));
+    }
+    setSaving(false);
+  };
+
+  return <div className="hero-grid"><div className="hero-copy"><span className="eyebrow">오늘의 맞춤 미션 · 10분</span><h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1><p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p><div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><strong>Leader</strong> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div><div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} />{error && <span className="student-code-error" role="alert">{error}</span>}{debugError && <span className="student-code-debug" role="status">개발 오류: {debugError}</span>}<button className="primary-button" onClick={() => void submit()} disabled={saving}>{saving ? "학습 기록 저장 중..." : "학습 시작하기"} <span>→</span></button><DetailedSupabaseConnectionCheck /></div></div><div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div></div>;
 }
 
 function StudentCodeStartScreen({ onStart }: { onStart: (code: string) => boolean }) {
@@ -365,7 +421,7 @@ function StudentCodeStartScreen({ onStart }: { onStart: (code: string) => boolea
         <h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1>
         <p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p>
         <div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><strong>Leader</strong> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div>
-        <div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") submit(); }} aria-describedby={error ? "student-code-error" : undefined} />{error && <span id="student-code-error" className="student-code-error" role="alert">{error}</span>}<button className="primary-button" onClick={submit}>학습 시작하기 <span>→</span></button></div>
+        <div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") submit(); }} aria-describedby={error ? "student-code-error" : undefined} />{error && <span id="student-code-error" className="student-code-error" role="alert">{error}</span>}<button className="primary-button" onClick={submit}>학습 시작하기 <span>→</span></button><DetailedSupabaseConnectionCheck /></div>
       </div>
       <div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div>
     </div>

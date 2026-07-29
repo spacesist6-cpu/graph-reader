@@ -1,0 +1,44 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ?? "";
+const supabasePublishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim() ?? "";
+
+export type SupabaseConnectionResult = {
+  ok: boolean;
+  message: string;
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
+export type LearningSessionStartResult = {
+  ok: boolean;
+  message: string;
+  session?: { studentProfileId: string; sessionId: string; studentCode: string; startedAt: string };
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
+export const supabase: SupabaseClient | null = isSupabaseConfigured ? createClient(supabaseUrl, supabasePublishableKey) : null;
+
+export async function checkSupabaseConnection(): Promise<SupabaseConnectionResult> {
+  try {
+    const response = await fetch("/api/supabase-health", { cache: "no-store" });
+    const result = await response.json() as SupabaseConnectionResult;
+    return result;
+  } catch (error) {
+    return { ok: false, message: "Supabase 연결 확인 요청에 실패했습니다.", error: { message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+export async function startLearningSession(studentCode: string): Promise<LearningSessionStartResult> {
+  try {
+    const response = await fetch("/api/learning-sessions/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ studentCode }),
+      cache: "no-store",
+    });
+    return await response.json() as LearningSessionStartResult;
+  } catch (error) {
+    return { ok: false, message: "학습 기록을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.", error: { message: error instanceof Error ? error.message : String(error) } };
+  }
+}
