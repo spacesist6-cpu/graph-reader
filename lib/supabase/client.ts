@@ -16,6 +16,13 @@ export type LearningSessionStartResult = {
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
+export type DiagnosisResponseSaveResult = {
+  ok: boolean;
+  message: string;
+  response?: { id: string; sessionId: string; questionId: string; submittedAt: string };
+  error?: { message?: string; code?: string; details?: string; hint?: string };
+};
+
 export const isSupabaseConfigured = Boolean(supabaseUrl && supabasePublishableKey);
 export const supabase: SupabaseClient | null = isSupabaseConfigured ? createClient(supabaseUrl, supabasePublishableKey) : null;
 
@@ -40,5 +47,31 @@ export async function startLearningSession(studentCode: string): Promise<Learnin
     return await response.json() as LearningSessionStartResult;
   } catch (error) {
     return { ok: false, message: "학습 기록을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.", error: { message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
+export async function saveDiagnosisResponse(input: {
+  sessionId: string;
+  questionId: string;
+  answer: string;
+  isCorrect: boolean;
+  shownAt: string;
+  submittedAt: string;
+  responseTimeMs: number;
+}): Promise<DiagnosisResponseSaveResult> {
+  try {
+    const response = await fetch("/api/diagnosis-responses", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(input),
+      cache: "no-store",
+    });
+    return await response.json() as DiagnosisResponseSaveResult;
+  } catch (error) {
+    return {
+      ok: false,
+      message: "진단 응답을 저장하지 못했습니다.",
+      error: { message: error instanceof Error ? error.message : String(error) },
+    };
   }
 }

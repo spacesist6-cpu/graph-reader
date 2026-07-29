@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { checkSupabaseConnection, startLearningSession } from "../lib/supabase/client";
+import { checkSupabaseConnection, saveDiagnosisResponse, startLearningSession } from "../lib/supabase/client";
 
 type Step = "start" | "diagnosis" | "explore" | "challenge" | "complete";
 
@@ -32,6 +32,7 @@ type CoefficientChange = QuadraticValues & { path: PathId; changedAt: string };
 type ExplorationRecord = { path: PathId; promptId: string; responseText: string; coefficientSnapshot: QuadraticValues; writtenAt: string };
 type LearningSession = { studentCode: string; sessionId: string; startedAt: string };
 const SESSION_STORAGE_KEY = "graph-reader-learning-session";
+let currentLearningSessionId = "";
 type ExplorationPrompt = { promptId: string; question: string; support: string };
 
 const explorationPrompts: Record<PathId, ExplorationPrompt> = {
@@ -258,6 +259,7 @@ export default function Home() {
         if (session.studentCode && session.sessionId && session.startedAt) {
           setStudentCode(session.studentCode);
           setSessionId(session.sessionId);
+          currentLearningSessionId = session.sessionId;
           setStartedAt(session.startedAt);
           setCompletedAt(session.completedAt ?? "");
           setStep(session.step ?? "start");
@@ -298,6 +300,7 @@ export default function Home() {
     if (!result.ok || !result.session) return result;
     setStudentCode(result.session.studentCode);
     setSessionId(result.session.sessionId);
+    currentLearningSessionId = result.session.sessionId;
     setStartedAt(result.session.startedAt);
     setCompletedAt("");
     setStep("diagnosis");
@@ -461,6 +464,8 @@ function DiagnosisScreen({ index, answers, shownAtByQuestion, onQuestionShown, o
 }) {
   const question = diagnosisQuestions[index];
   const [selected, setSelected] = useState(answers[question.id]?.answer ?? "");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<{ message?: string; code?: string; details?: string; hint?: string } | null>(null);
   const shownAtRef = useRef("");
 
   useEffect(() => {
@@ -470,12 +475,21 @@ function DiagnosisScreen({ index, answers, shownAtByQuestion, onQuestionShown, o
     setSelected(answers[question.id]?.answer ?? "");
   }, [answers, onQuestionShown, question.id, shownAtByQuestion]);
 
-  const submit = () => {
-    if (!selected) return;
+  const submit = async () => {
+    if (!selected || saving || !currentLearningSessionId) return;
+    setSaving(true);
+    setSaveError(null);
     const submittedAt = new Date().toISOString();
     const shownAt = shownAtRef.current || submittedAt;
     const responseTimeMs = Math.max(0, new Date(submittedAt).getTime() - new Date(shownAt).getTime());
+    const result = await saveDiagnosisResponse({ sessionId: currentLearningSessionId, questionId: question.id, answer: selected, isCorrect: selected === question.correct, shownAt, submittedAt, responseTimeMs });
+    if (!result.ok) {
+      setSaveError(result.error ?? { message: result.message });
+      setSaving(false);
+      return;
+    }
     onSubmit(question, selected, submittedAt, responseTimeMs, selected === question.correct);
+    setSaving(false);
   };
 
   return (
@@ -483,7 +497,8 @@ function DiagnosisScreen({ index, answers, shownAtByQuestion, onQuestionShown, o
       <div className="section-intro"><span className="eyebrow">01 · 빠른 진단</span><h2>그래프를 얼마나 알고 있는지 확인해볼까요?</h2><p>각 문항을 읽고 가장 알맞은 답을 골라주세요.</p></div>
       <div className="diagnosis-progress" aria-label={`진단 진행률 ${index + 1}/5`}>{index + 1}/5</div>
       <div className="diagnosis-card"><h3>{question.prompt}</h3><div className="diagnosis-choice-list">{question.choices.map((choice) => <button type="button" key={choice.id} className={`diagnosis-choice ${selected === choice.id ? "selected" : ""}`} onClick={() => setSelected(choice.id)}>{choice.label}</button>)}</div></div>
-      <button className="primary-button" disabled={!selected} onClick={submit}>{index === diagnosisQuestions.length - 1 ? "진단 완료" : "다음 문항"} <span>→</span></button>
+      {saveError && <div className="supabase-error" role="alert"><p>{saveError.message ?? "진단 응답을 저장하지 못했습니다."}</p>{process.env.NODE_ENV !== "production" && <small>{[saveError.code, saveError.details, saveError.hint].filter(Boolean).join(" | ")}</small>}</div>}
+      <button className="primary-button" disabled={!selected || saving} onClick={() => void submit()}>{saving ? "저장 중..." : index === diagnosisQuestions.length - 1 ? "진단 완료" : "다음 문항"} <span>→</span></button>
       {process.env.NODE_ENV !== "production" && onDevPath && <div className="dev-path-tools" aria-label="개발용 경로 테스트"><button type="button" onClick={() => onDevPath("A")}>A로 테스트</button><button type="button" onClick={() => onDevPath("B")}>B로 테스트</button><button type="button" onClick={() => onDevPath("C")}>C로 테스트</button></div>}
     </div>
   );
