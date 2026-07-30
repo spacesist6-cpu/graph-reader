@@ -1033,11 +1033,11 @@ function reviewFeedbackValue(feedback: Record<string, unknown> | null, key: stri
 function LearningReviewMenu({ records, onSelect }: { records: LearningRecords | null; onSelect: (section: Exclude<ReviewSection, "menu">) => void }) {
   const hasExploration = (path: PathId) => Boolean(records?.explorations.some((item) => item.path === path));
   const items: Array<{ section: Exclude<ReviewSection, "menu">; label: string; available: boolean }> = [
-    { section: "diagnosis", label: "진단 결과 돌아보기", available: Boolean(records?.diagnosis.length) },
-    { section: "exploration-A", label: "1단계 탐구 돌아보기", available: hasExploration("A") },
-    { section: "exploration-B", label: "2단계 탐구 돌아보기", available: hasExploration("B") },
-    { section: "exploration-C", label: "3단계 탐구 돌아보기", available: hasExploration("C") },
-    { section: "final", label: "최종 미션 결과 보기", available: Boolean(records?.finalAttempts.length) },
+    { section: "diagnosis", label: "진단 결과 돌아보기", available: records === null || Boolean(records?.diagnosis.length) },
+    { section: "exploration-A", label: "1단계 탐구 돌아보기", available: records === null || hasExploration("A") },
+    { section: "exploration-B", label: "2단계 탐구 돌아보기", available: records === null || hasExploration("B") },
+    { section: "exploration-C", label: "3단계 탐구 돌아보기", available: records === null || hasExploration("C") },
+    { section: "final", label: "최종 미션 결과 보기", available: records === null || Boolean(records?.finalAttempts.length) },
   ];
   return <section className="learning-review-menu" aria-labelledby="learning-review-title"><h3 id="learning-review-title">학습 기록 돌아보기</h3><p>완료한 학습 기록을 읽기 전용으로 다시 확인할 수 있어요.</p><div className="learning-review-actions">{items.map((item) => <button type="button" className="secondary-button" key={item.section} disabled={!item.available} onClick={() => onSelect(item.section)}>{item.label}</button>)}</div></section>;
 }
