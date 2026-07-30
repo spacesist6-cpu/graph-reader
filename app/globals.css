@@ -160,3 +160,14 @@ h1, h2, h3, h4, strong, .brand, .brand-copy strong, .hero-copy h1, .section-intr
 .function-grid.major { stroke: #cbd1df; stroke-width: .7; }
 .function-tick { stroke: #7d8798; stroke-width: .8; }
 .function-label { fill: #596578; font-family: Pretendard, "Noto Sans KR", system-ui, sans-serif; font-size: 9px; }
+.learning-review-menu { margin: 28px 0 18px; padding: 22px; background: #fff; border: 1px solid var(--line); border-radius: 16px; text-align: left; }
+.learning-review-menu h3 { margin: 0 0 7px; font-size: 18px; }
+.learning-review-menu p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+.learning-review-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.learning-review-actions .secondary-button { margin: 0; text-align: left; }
+.learning-review-actions .secondary-button:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+.learning-review-navigation { display: grid; gap: 14px; margin-top: 22px; }
+.learning-review-navigation > div { display: flex; flex-wrap: wrap; gap: 8px; }
+.text-button { border: 0; background: transparent; color: var(--blue); cursor: pointer; font: inherit; font-size: 12px; padding: 6px 8px; }
+.learning-review-navigation .primary-button { margin-top: 0; }
+@media (max-width: 700px) { .learning-review-actions { grid-template-columns: 1fr; } .learning-review-menu { padding: 18px; } }

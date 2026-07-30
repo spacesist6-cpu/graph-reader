@@ -69,6 +69,24 @@ export type ExplorationResultsLoadResult = {
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
+export type LearningRecords = {
+  diagnosis: Array<{ id: string; question_id: string; question_version: string | null; question_parameters: Record<string, unknown> | null; answer: string; is_correct: boolean; submitted_at: string; response_time_ms: number | null }>;
+  checkpoints: Array<{ id: string; path: string; question_id: string; question_version: string; question_parameters: Record<string, unknown>; student_answer: string; is_correct: boolean; response_time_ms: number; attempt_number: number; submitted_at: string }>;
+  explorations: Array<{ id: string; path: "A" | "B" | "C"; prompt_id: string; response_text: string; coefficient_snapshot: { a: number; b: number; c: number } | null; ai_feedback: Record<string, unknown> | null; feedback_status: string | null; feedback_created_at: string | null }>;
+  finalAttempts: Array<{ id: string; question_id: string; question_formula: string; question_parameters: Record<string, unknown>; selected_choice_id: string; selected_formula: string; is_correct: boolean; attempt_number: number; feedback: string; submitted_at: string }>;
+};
+
+export type LearningRecordsLoadResult = { ok: boolean; message: string; records?: LearningRecords; error?: { message?: string } };
+
+export async function loadLearningRecords(sessionId: string): Promise<LearningRecordsLoadResult> {
+  try {
+    const response = await fetch(`/api/learning-records?sessionId=${encodeURIComponent(sessionId)}`, { cache: "no-store" });
+    return await response.json() as LearningRecordsLoadResult;
+  } catch (error) {
+    return { ok: false, message: "학습 기록을 불러오지 못했습니다.", error: { message: error instanceof Error ? error.message : String(error) } };
+  }
+}
+
 export type AggregateExplorationFeedbackResult = {
   ok: boolean;
   message: string;

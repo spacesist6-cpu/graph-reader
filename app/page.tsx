@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { aggregateExplorationFeedback, checkSupabaseConnection, loadExplorationResults, saveCheckpointAttempt, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type AggregateExplorationFeedback, type ExplorationFeedback } from "../lib/supabase/client";
+import { aggregateExplorationFeedback, checkSupabaseConnection, loadExplorationResults, loadLearningRecords, saveCheckpointAttempt, saveDiagnosisResponse, saveExplorationFeedback, saveFinalChallengeAttempt, startLearningSession, type AggregateExplorationFeedback, type ExplorationFeedback, type LearningRecords } from "../lib/supabase/client";
 import { createDiagnosisQuestions } from "../lib/diagnosis/questions";
 import { createFinalChallengeQuestion, type FinalChallengeQuestion } from "../lib/final-challenge/questions";
 
 type Step = "start" | "diagnosis" | "diagnosis-feedback" | "explore" | "checkpoint" | "feedback" | "challenge" | "complete";
+type ReviewSection = "menu" | "diagnosis" | "exploration-A" | "exploration-B" | "exploration-C" | "final";
 
 const graphOptions = [
   { id: "A", title: "1단계 탐구 그래프", formula: "y = x²", note: "아래로 볼록, 꼭짓점은 (0, 0)" },
@@ -1019,7 +1020,79 @@ function ChallengeScreen({ selected, feedback, attempts, done, onSelect, onRetry
   );
 }
 
+function reviewPathLabel(path: PathId) {
+  return path === "A" ? "1단계 탐구" : path === "B" ? "2단계 탐구" : "3단계 탐구";
+}
+
+function reviewFeedbackValue(feedback: Record<string, unknown> | null, key: string) {
+  const value = feedback?.[key];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === "string").join(" ");
+  return typeof value === "string" ? value : "저장된 피드백이 없습니다.";
+}
+
+function LearningReviewMenu({ records, onSelect }: { records: LearningRecords | null; onSelect: (section: Exclude<ReviewSection, "menu">) => void }) {
+  const hasExploration = (path: PathId) => Boolean(records?.explorations.some((item) => item.path === path));
+  const items: Array<{ section: Exclude<ReviewSection, "menu">; label: string; available: boolean }> = [
+    { section: "diagnosis", label: "진단 결과 돌아보기", available: Boolean(records?.diagnosis.length) },
+    { section: "exploration-A", label: "1단계 탐구 돌아보기", available: hasExploration("A") },
+    { section: "exploration-B", label: "2단계 탐구 돌아보기", available: hasExploration("B") },
+    { section: "exploration-C", label: "3단계 탐구 돌아보기", available: hasExploration("C") },
+    { section: "final", label: "최종 미션 결과 보기", available: Boolean(records?.finalAttempts.length) },
+  ];
+  return <section className="learning-review-menu" aria-labelledby="learning-review-title"><h3 id="learning-review-title">학습 기록 돌아보기</h3><p>완료한 학습 기록을 읽기 전용으로 다시 확인할 수 있어요.</p><div className="learning-review-actions">{items.map((item) => <button type="button" className="secondary-button" key={item.section} disabled={!item.available} onClick={() => onSelect(item.section)}>{item.label}</button>)}</div></section>;
+}
+
+function LearningReviewScreen({ section, records, loading, error, questions, onBack, onSelect }: { section: Exclude<ReviewSection, "menu">; records: LearningRecords | null; loading: boolean; error: string | null; questions: DiagnosisQuestion[]; onBack: () => void; onSelect: (section: Exclude<ReviewSection, "menu">) => void }) {
+  if (loading) return <div className="question-page"><div className="section-intro"><h2>학습 기록을 불러오는 중이에요.</h2></div></div>;
+  if (error) return <div className="question-page"><div className="section-intro"><h2>학습 기록 돌아보기</h2><p>{error}</p></div><button type="button" className="secondary-button" onClick={onBack}>완료 화면으로 돌아가기</button></div>;
+  if (!records) return <div className="question-page"><div className="feedback-empty" role="status">저장된 기록이 없습니다.</div><button type="button" className="secondary-button" onClick={onBack}>완료 화면으로 돌아가기</button></div>;
+
+  if (section === "diagnosis") {
+    return <div className="question-page learning-review-page"><div className="section-intro"><span className="eyebrow">읽기 전용 기록</span><h2>진단 결과 돌아보기</h2><p>진단 문항과 제출 기록을 다시 확인해보세요.</p></div>{records.diagnosis.length ? <div className="feedback-card-list">{records.diagnosis.map((record) => { const question = questions.find((item) => item.id === record.question_id); const selected = question?.choices.find((choice) => choice.id === record.answer)?.label ?? record.answer; return <article className="feedback-card" key={record.id}><h3>{question?.prompt ?? record.question_id}</h3><p><strong>학생이 선택한 답</strong><br />{selected}</p><p><strong>정답 여부</strong><br />{record.is_correct ? "정답" : "다시 확인할 내용이 있어요."}</p><p><strong>응답 시간</strong><br />{record.response_time_ms ?? 0}ms</p><p><strong>진단 기본 피드백</strong><br />{record.is_correct ? "핵심 개념을 잘 연결했습니다." : question ? diagnosisFeedbackCopy[question.questionType].guidance : "문항의 핵심 개념을 다시 확인해보세요."}</p></article>; })}</div> : <div className="feedback-empty">저장된 기록이 없습니다.</div>}<ReviewNavigation section={section} onBack={onBack} onSelect={onSelect} /></div>;
+  }
+
+  if (section.startsWith("exploration-")) {
+    const path = section.endsWith("A") ? "A" : section.endsWith("B") ? "B" : "C" as PathId;
+    const record = [...records.explorations].reverse().find((item) => item.path === path);
+    const checkpoints = records.checkpoints.filter((item) => item.path === path);
+    const snapshot = record?.coefficient_snapshot;
+    const snapshotA = snapshot?.a ?? 0;
+    return <div className="question-page learning-review-page"><div className="section-intro"><span className="eyebrow">읽기 전용 기록</span><h2>{reviewPathLabel(path)} 돌아보기</h2><p>저장된 탐구 답변과 피드백을 다시 확인해보세요.</p></div>{record ? <article className="feedback-card"><h3>탐구 질문</h3><p>{explorationPrompts[path].question}</p><h3>학생의 서술형 답변</h3><p className="student-response">{record.response_text || "작성된 답변이 없습니다."}</p><h3>답변 저장 당시의 계수</h3><p className="coefficient-snapshot">a = {snapshot?.a ?? "-"}, b = {snapshot?.b ?? "-"}, c = {snapshot?.c ?? "-"}</p><h3>그래프 요약</h3><p>{snapshot ? `a=${snapshot.a}일 때 ${snapshot.a > 0 ? "아래로 볼록" : "위로 볼록"}이며, b와 c에 따라 꼭짓점·대칭축·y절편이 결정됩니다.` : "저장된 그래프 요약이 없습니다."}</p><h3>Gemini 또는 기본 피드백</h3><p><strong>잘한 점</strong><br />{reviewFeedbackValue(record.ai_feedback, "strengths")}</p><p><strong>보완할 점</strong><br />{reviewFeedbackValue(record.ai_feedback, "improvements")}</p><p><strong>다시 생각해볼 질문</strong><br />{reviewFeedbackValue(record.ai_feedback, "nextQuestion")}</p><p><strong>피드백 상태</strong><br />{record.feedback_status ?? "fallback"}</p><h3>확인문제 결과</h3><p>{checkpoints.length ? `${checkpoints.length}개의 제출 기록, 총 ${Math.max(...checkpoints.map((item) => item.attempt_number), 0)}회차까지 기록되었습니다.` : "저장된 확인문제 기록이 없습니다."}</p></article> : <div className="feedback-empty">저장된 기록이 없습니다.</div>}<ReviewNavigation section={section} onBack={onBack} onSelect={onSelect} /></div>;
+  }
+
+  const finalRecord = [...records.finalAttempts].reverse().find((item) => item.is_correct) ?? records.finalAttempts[records.finalAttempts.length - 1];
+  return <div className="question-page learning-review-page"><div className="section-intro"><span className="eyebrow">읽기 전용 기록</span><h2>최종 미션 결과 보기</h2><p>그래프를 다시 선택하거나 제출할 수 없는 결과 화면입니다.</p></div>{finalRecord ? <article className="feedback-card"><h3>최종 미션 함수식</h3><p className="final-formula">{finalRecord.question_formula}</p><h3>학생이 선택한 그래프</h3><p>{finalRecord.selected_formula || finalRecord.selected_choice_id}</p><h3>정답 여부</h3><p>{finalRecord.is_correct ? "정답" : "아직 정답 기록이 없습니다."}</p><h3>제출 당시의 피드백</h3><p>{finalRecord.feedback || "저장된 피드백이 없습니다."}</p><h3>전체 시도 횟수</h3><p>{Math.max(...records.finalAttempts.map((item) => item.attempt_number), 0)}회</p></article> : <div className="feedback-empty">저장된 기록이 없습니다.</div>}<ReviewNavigation section={section} onBack={onBack} onSelect={onSelect} /></div>;
+}
+
+function ReviewNavigation({ section, onBack, onSelect }: { section: Exclude<ReviewSection, "menu">; onBack: () => void; onSelect: (section: Exclude<ReviewSection, "menu">) => void }) {
+  const items: Array<{ section: Exclude<ReviewSection, "menu">; label: string }> = [{ section: "diagnosis", label: "진단 결과" }, { section: "exploration-A", label: "1단계 탐구" }, { section: "exploration-B", label: "2단계 탐구" }, { section: "exploration-C", label: "3단계 탐구" }, { section: "final", label: "최종 미션" }];
+  return <div className="learning-review-navigation"><div>{items.filter((item) => item.section !== section).map((item) => <button type="button" className="text-button" key={item.section} onClick={() => onSelect(item.section)}>{item.label} 돌아보기</button>)}</div><button type="button" className="primary-button" onClick={onBack}>완료 화면으로 돌아가기</button></div>;
+}
+
 function CompleteScreen({ studentCode, completedAt, onRestart }: { studentCode: string; completedAt: string; onRestart: () => void }) {
+  const [section, setSection] = useState<ReviewSection>("menu");
+  const [records, setRecords] = useState<LearningRecords | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const questions = useMemo(() => createDiagnosisQuestions(studentCode, currentLearningSessionId), [studentCode]);
+  useEffect(() => {
+    if (records || !currentLearningSessionId) return;
+    setError(null);
+    void loadLearningRecords(currentLearningSessionId).then((result) => {
+      if (result.ok && result.records) setRecords(result.records);
+      else setError(result.message);
+    });
+  }, [records, section]);
+  if (section !== "menu") return <LearningReviewScreen section={section} records={records} loading={!records && !error} error={error} questions={questions} onBack={() => setSection("menu")} onSelect={setSection} />;
+  const formattedCompletedAt = completedAt ? new Date(completedAt).toLocaleString("ko-KR") : "";
+  return <div className="complete-page"><div className="complete-icon">✓</div><span className="eyebrow">GRAPH LEADER</span><h2>그래프 리더 미션<br /><em>완료했습니다.</em></h2><p>함수의 계수를 살펴보고 그래프의 변화를 직접 탐구했습니다.</p><div className="result-card"><div><span>학생 코드</span><strong>{studentCode}</strong></div><div><span>완료 시각</span><strong>{formattedCompletedAt}</strong></div></div><LearningReviewMenu records={records} onSelect={setSection} /><button className="secondary-button" onClick={onRestart}>처음부터 다시 해보기</button></div>;
+  }
+  /*
+  return <div className="complete-page"><div className="confetti">?╉?㎯??/div><div className="complete-icon">??/div><span className="eyebrow">GRAPH LEADER</span><h2>洹몃옒??由щ뜑 誘몄뀡??br /><em>?꾨즺?덉뒿?덈떎.</em></h2><p>?⑥닔?앹쓽 怨꾩닔瑜??쎄퀬,<br />洹몃옒?꾩쓽 蹂?붾? 吏곸젒 ?대걣?대깉?듬땲??</p><div className="result-card"><div><span>?숈뒿 肄붾뱶</span><strong>{studentCode}</strong></div><div><span>?꾨즺 ?쒓컖</span><strong>{formattedCompletedAt}</strong></div></div><p className="completion-message">?숈뒿 肄붾뱶 {studentCode}??誘몄뀡???꾨즺?섏뿀?듬땲??</p><LearningReviewMenu records={records} onSelect={setSection} /><button className="secondary-button" onClick={onRestart}>泥섏쓬遺???ㅼ떆 ?대낫湲?/button></div>;
+}
+
+*/
+/* function LegacyCompleteScreen({ studentCode, completedAt, onRestart }: { studentCode: string; completedAt: string; onRestart: () => void }) {
   const formattedCompletedAt = completedAt ? new Date(completedAt).toLocaleString("ko-KR") : "";
   return <div className="complete-page"><div className="confetti">✦　✧　✦</div><div className="complete-icon">✓</div><span className="eyebrow">GRAPH LEADER</span><h2>그래프 리더 미션을<br /><em>완료했습니다.</em></h2><p>함수식의 계수를 읽고,<br />그래프의 변화를 직접 이끌어냈습니다.</p><div className="result-card"><div><span>학습 코드</span><strong>{studentCode}</strong></div><div><span>완료 시각</span><strong>{formattedCompletedAt}</strong></div></div><p className="completion-message">학습 코드 {studentCode}의 미션이 완료되었습니다.</p><button className="secondary-button" onClick={onRestart}>처음부터 다시 해보기</button></div>;
 }
+*/
