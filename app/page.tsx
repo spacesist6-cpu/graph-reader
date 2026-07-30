@@ -930,6 +930,31 @@ function ExploreLegacyScreen({ selected, onSelect, onNext }: { selected: string;
 }
 
 function FunctionGraph({ choice }: { choice: GraphChoice }) {
+  const plotLeft = 30;
+  const plotTop = 12;
+  const plotSize = 204;
+  const domainMin = -6;
+  const domainMax = 6;
+  const gridValues = Array.from({ length: 13 }, (_, index) => domainMin + index);
+  const labelValues = [-4, -2, 0, 2, 4];
+  const points = Array.from({ length: 97 }, (_, index) => domainMin + index * 0.125).map((x) => [x, choice.a * x * x + choice.b * x + choice.c]);
+  const toX = (x: number) => plotLeft + ((x - domainMin) / (domainMax - domainMin)) * plotSize;
+  const toY = (y: number) => plotTop + ((domainMax - y) / (domainMax - domainMin)) * plotSize;
+  const path = points.map(([x, y], index) => `${index === 0 ? "M" : "L"}${toX(x).toFixed(1)},${toY(y).toFixed(1)}`).join(" ");
+  const clipId = `function-graph-clip-${choice.id}`;
+  return <svg className="function-graph" viewBox="0 0 240 240" role="img" aria-label={`${choice.formula} 그래프`}>
+    <defs><clipPath id={clipId}><rect x={plotLeft} y={plotTop} width={plotSize} height={plotSize} /></clipPath></defs>
+    {gridValues.map((value) => <line key={`vertical-${value}`} x1={toX(value)} y1={plotTop} x2={toX(value)} y2={plotTop + plotSize} className={value % 2 === 0 ? "function-grid major" : "function-grid"} />)}
+    {gridValues.map((value) => <line key={`horizontal-${value}`} x1={plotLeft} y1={toY(value)} x2={plotLeft + plotSize} y2={toY(value)} className={value % 2 === 0 ? "function-grid major" : "function-grid"} />)}
+    <line x1={plotLeft} y1={toY(0)} x2={plotLeft + plotSize} y2={toY(0)} className="function-axis" />
+    <line x1={toX(0)} y1={plotTop} x2={toX(0)} y2={plotTop + plotSize} className="function-axis" />
+    {labelValues.map((value) => <g key={`x-label-${value}`}><line x1={toX(value)} y1={toY(0) - 3} x2={toX(value)} y2={toY(0) + 3} className="function-tick" /><text x={toX(value)} y={toY(0) + 17} className="function-label" textAnchor="middle">{value}</text></g>)}
+    {labelValues.map((value) => <g key={`y-label-${value}`}><line x1={toX(0) - 3} y1={toY(value)} x2={toX(0) + 3} y2={toY(value)} className="function-tick" /><text x={toX(0) - 8} y={toY(value) + 4} className="function-label" textAnchor="end">{value}</text></g>)}
+    <g clipPath={`url(#${clipId})`}><path d={path} className="function-curve" /></g>
+  </svg>;
+}
+
+function LegacyFunctionGraph({ choice }: { choice: GraphChoice }) {
   const points = Array.from({ length: 49 }, (_, index) => -6 + index * 0.25).map((x) => [x, choice.a * x * x + choice.b * x + choice.c]);
   const toX = (x: number) => 12 + ((x + 6) / 12) * 176;
   const toY = (y: number) => 92 - ((y + 12) / 24) * 80;
