@@ -332,6 +332,12 @@ export default function Home() {
   const [challengeDone, setChallengeDone] = useState(false);
   const diagnosisQuestions = useMemo(() => createDiagnosisQuestions(studentCode, sessionId), [studentCode, sessionId]);
   const finalQuestion = useMemo(() => createFinalChallengeQuestion(studentCode, sessionId), [studentCode, sessionId]);
+  const localReviewRecords = useMemo<LearningRecords>(() => ({
+    diagnosis: diagnosisQuestions.flatMap((question) => diagnosisAnswers[question.id] ? [{ id: `local-${question.id}`, question_id: question.id, question_version: question.version, question_parameters: question.parameters, answer: diagnosisAnswers[question.id].answer, is_correct: diagnosisResults[question.id] ?? false, submitted_at: diagnosisAnswers[question.id].submittedAt, response_time_ms: responseTimes[question.id] ?? null }] : []),
+    checkpoints: [],
+    explorations: Object.values(explorationResults).flatMap((items) => items.map((item) => ({ id: `local-${item.path}-${item.promptId}`, path: item.path, prompt_id: item.promptId, response_text: item.responseText, coefficient_snapshot: item.coefficientSnapshot, ai_feedback: null, feedback_status: "fallback", feedback_created_at: item.writtenAt }))),
+    finalAttempts: finalChoiceId ? [{ id: "local-final", question_id: finalQuestion.id, question_formula: finalQuestion.formula, question_parameters: finalQuestion.coefficients, selected_choice_id: finalChoiceId, selected_formula: finalQuestion.graphChoices.find((choice) => choice.id === finalChoiceId)?.formula ?? "", is_correct: challengeDone, attempt_number: Math.max(finalAttempts, 1), feedback: finalFeedback ?? "", submitted_at: completedAt || new Date().toISOString() }] : [],
+  }), [challengeDone, completedAt, diagnosisAnswers, diagnosisQuestions, diagnosisResults, explorationResults, finalAttempts, finalChoiceId, finalFeedback, finalQuestion, responseTimes]);
 
   useEffect(() => {
     try {
@@ -570,7 +576,7 @@ export default function Home() {
         {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} />}
         {step === "feedback" && <ExplorationFeedbackScreen results={explorationResults} feedback={explorationFeedback} onNext={goNext} />}
         {step === "challenge" && <FinalChallengeScreen question={finalQuestion} selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
-        {step === "complete" && <CompleteScreen studentCode={studentCode} completedAt={completedAt} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
+        {step === "complete" && <CompleteScreen studentCode={studentCode} sessionId={sessionId} completedAt={completedAt} fallbackRecords={localReviewRecords} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
       </section>
 
       <footer>학습 기록은 현재 이 브라우저에서만 임시로 유지됩니다 · 저장 기능은 다음 단계에서 연결할 예정이에요.</footer>
@@ -1069,19 +1075,36 @@ function ReviewNavigation({ section, onBack, onSelect }: { section: Exclude<Revi
   return <div className="learning-review-navigation"><div>{items.filter((item) => item.section !== section).map((item) => <button type="button" className="text-button" key={item.section} onClick={() => onSelect(item.section)}>{item.label} 돌아보기</button>)}</div><button type="button" className="primary-button" onClick={onBack}>완료 화면으로 돌아가기</button></div>;
 }
 
-function CompleteScreen({ studentCode, completedAt, onRestart }: { studentCode: string; completedAt: string; onRestart: () => void }) {
+function CompleteScreen({ studentCode, sessionId, completedAt, fallbackRecords, onRestart }: { studentCode: string; sessionId: string; completedAt: string; fallbackRecords: LearningRecords; onRestart: () => void }) {
   const [section, setSection] = useState<ReviewSection>("menu");
-  const [records, setRecords] = useState<LearningRecords | null>(null);
+  const [records, setRecords] = useState<LearningRecords>(fallbackRecords);
   const [error, setError] = useState<string | null>(null);
-  const questions = useMemo(() => createDiagnosisQuestions(studentCode, currentLearningSessionId), [studentCode]);
+  const questions = useMemo(() => createDiagnosisQuestions(studentCode, sessionId), [studentCode, sessionId]);
   useEffect(() => {
-    if (records || !currentLearningSessionId) return;
+    if (!sessionId) return;
+    console.info("[review] session id", sessionId);
     setError(null);
-    void loadLearningRecords(currentLearningSessionId).then((result) => {
-      if (result.ok && result.records) setRecords(result.records);
-      else setError(result.message);
+    void loadLearningRecords(sessionId).then((result) => {
+      if (result.ok && result.records) {
+        const loadedRecords = {
+          diagnosis: result.records.diagnosis.length ? result.records.diagnosis : fallbackRecords.diagnosis,
+          checkpoints: result.records.checkpoints.length ? result.records.checkpoints : fallbackRecords.checkpoints,
+          explorations: result.records.explorations.length ? result.records.explorations : fallbackRecords.explorations,
+          finalAttempts: result.records.finalAttempts.length ? result.records.finalAttempts : fallbackRecords.finalAttempts,
+        };
+        setRecords(loadedRecords);
+        console.info("[review] loaded diagnosis count", loadedRecords.diagnosis.length);
+        console.info("[review] loaded exploration paths", loadedRecords.explorations.map((item) => item.path));
+        console.info("[review] loaded checkpoint count", loadedRecords.checkpoints.length);
+        console.info("[review] loaded final attempts", loadedRecords.finalAttempts.length);
+      } else {
+        console.error("[review] load error", result.error ?? result.message);
+        console.info("[review] using current session fallback records", { diagnosis: fallbackRecords.diagnosis.length, explorationPaths: fallbackRecords.explorations.map((item) => item.path), checkpoints: fallbackRecords.checkpoints.length, finalAttempts: fallbackRecords.finalAttempts.length });
+        setRecords(fallbackRecords);
+        setError(null);
+      }
     });
-  }, [records, section]);
+  }, [fallbackRecords, sessionId]);
   if (section !== "menu") return <LearningReviewScreen section={section} records={records} loading={!records && !error} error={error} questions={questions} onBack={() => setSection("menu")} onSelect={setSection} />;
   const formattedCompletedAt = completedAt ? new Date(completedAt).toLocaleString("ko-KR") : "";
   return <div className="complete-page"><div className="complete-icon">✓</div><span className="eyebrow">GRAPH LEADER</span><h2>그래프 리더 미션<br /><em>완료했습니다.</em></h2><p>함수의 계수를 살펴보고 그래프의 변화를 직접 탐구했습니다.</p><div className="result-card"><div><span>학생 코드</span><strong>{studentCode}</strong></div><div><span>완료 시각</span><strong>{formattedCompletedAt}</strong></div></div><LearningReviewMenu records={records} onSelect={setSection} /><button className="secondary-button" onClick={onRestart}>처음부터 다시 해보기</button></div>;

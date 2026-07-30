@@ -9,6 +9,9 @@ export async function GET(request: Request) {
 
   const client = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data, error } = await client.rpc("get_learning_records", { p_session_id: sessionId });
-  if (error) return Response.json({ ok: false, message: "학습 기록을 불러오지 못했습니다." }, { status: 502 });
+  if (error) {
+    console.error("[review] load error", { sessionId, message: error.message, code: error.code, details: error.details, hint: error.hint });
+    return Response.json({ ok: false, message: "학습 기록을 불러오지 못했습니다." }, { status: 502 });
+  }
   return Response.json({ ok: true, records: data ?? { diagnosis: [], checkpoints: [], explorations: [], finalAttempts: [] } }, { headers: { "cache-control": "no-store" } });
 }
