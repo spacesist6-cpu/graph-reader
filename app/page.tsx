@@ -895,6 +895,20 @@ function ExplorationFeedbackScreen({ results, feedback, onNext }: { results: Rec
     .map((path) => ({ path, stage: path === "A" ? 1 : path === "B" ? 2 : 3, record: results[path][results[path].length - 1] }))
     .filter((item): item is typeof item & { record: ExplorationRecord } => Boolean(item.record))
     .map((item) => ({ ...item, feedback: feedbackList.find((feedbackItem) => feedbackItem.stage === item.stage) }));
+  const fallback = (stage: number) => stage === 1
+    ? { strengths: ["a와 그래프의 변화를 관찰했습니다."], improvements: ["a의 부호와 |a|가 방향과 폭에 미치는 영향을 다시 확인해보세요."], nextQuestion: "a의 부호와 크기는 그래프를 어떻게 바꿀까요?", hint: "a의 부호와 |a|를 그래프와 연결해보세요." }
+    : stage === 2
+      ? { strengths: ["a와 b의 변화를 꼭짓점과 연결하려고 했습니다."], improvements: ["대칭축 x=-b/(2a)와 꼭짓점의 관계를 확인해보세요."], nextQuestion: "b가 바뀌면 대칭축은 어떻게 이동할까요?", hint: "a와 b로 대칭축과 꼭짓점을 계산해보세요." }
+      : { strengths: ["a, b, c와 그래프의 특징을 종합적으로 살펴보았습니다."], improvements: ["x=0을 대입해 c와 y절편의 관계를 확인해보세요."], nextQuestion: "세 계수는 그래프의 어떤 특징에 영향을 줄까요?", hint: "방향, 폭, 꼭짓점, 대칭축, y절편을 식과 대조해보세요." };
+  return <div className="question-page exploration-feedback-page"><div className="section-intro"><span className="eyebrow">탐구 결과 피드백</span><h2>탐구 과정을 함께 돌아봅시다.</h2><p>각 탐구에서 작성한 답변과 관찰 내용을 순서대로 확인해봅시다.</p></div>{stages.length === 0 ? <div className="feedback-empty" role="status"><strong>아직 저장된 탐구 결과가 없습니다.</strong><p>탐구 답변을 작성하고 저장하면 피드백이 표시됩니다.</p></div> : <div className="feedback-card-list">{stages.map(({ stage, path, record, feedback: stageFeedback }) => { const safe = stageFeedback ?? fallback(stage); return <article className="feedback-card" key={path}><span className="eyebrow">{stage}단계 탐구</span><h3>탐구 질문</h3><p>{explorationPrompts[path].question}</p><h3>학생의 서술형 답변</h3><p className="student-response">{record.responseText}</p><p className="coefficient-snapshot">현재 계수 · a={record.coefficientSnapshot.a}, b={record.coefficientSnapshot.b}, c={record.coefficientSnapshot.c}</p><h3>잘한 점</h3><ul>{safe.strengths.map((item) => <li key={item}>{item}</li>)}</ul><h3>보완할 점</h3><ul>{safe.improvements.map((item) => <li key={item}>{item}</li>)}</ul><h3>다시 생각해볼 질문</h3><p>{safe.nextQuestion}</p><h3>최종 미션 힌트</h3><p>{safe.hint}</p></article>; })}</div>}<button className="primary-button" onClick={onNext}>최종 미션 도전하기 <span>→</span></button></div>;
+}
+
+function LegacyAggregateExplorationFeedbackScreen({ results, feedback, onNext }: { results: Record<PathId, ExplorationRecord[]>; feedback: AggregateExplorationFeedback | null; onNext: () => void }) {
+  const feedbackList = Array.isArray(feedback?.feedback) ? feedback.feedback : [];
+  const stages = (["A", "B", "C"] as PathId[])
+    .map((path) => ({ path, stage: path === "A" ? 1 : path === "B" ? 2 : 3, record: results[path][results[path].length - 1] }))
+    .filter((item): item is typeof item & { record: ExplorationRecord } => Boolean(item.record))
+    .map((item) => ({ ...item, feedback: feedbackList.find((feedbackItem) => feedbackItem.stage === item.stage) }));
   const hasResults = stages.some((item) => item.record);
   const fallback = (stage: number) => stage === 1 ? { strengths: ["a와 그래프의 변화를 관찰했습니다."], improvements: ["a가 양수이면 그래프는 아래로 볼록이고, 음수이면 위로 볼록입니다."], nextQuestion: "|a|의 크기는 그래프의 폭에 어떤 영향을 줄까요?", hint: "a의 부호와 |a|를 최종 미션의 그래프와 연결해보세요." } : stage === 2 ? { strengths: ["a와 b의 변화를 꼭짓점과 연결하려고 했습니다."], improvements: ["대칭축 x = -b/(2a)와 꼭짓점의 관계를 확인해보세요."], nextQuestion: "b가 바뀌면 대칭축은 어떻게 이동할까요?", hint: "a와 b로 대칭축과 꼭짓점을 먼저 계산해보세요." } : { strengths: ["a, b, c와 그래프 특징을 종합적으로 살펴보았습니다."], improvements: ["x=0을 대입해 c와 y절편의 관계를 확인해보세요."], nextQuestion: "세 계수가 그래프에 미치는 영향을 한 문장으로 설명해볼까요?", hint: "방향, 폭, 꼭짓점, 대칭축, y절편을 모두 식과 대조해보세요." };
   return <div className="question-page exploration-feedback-page"><div className="section-intro"><span className="eyebrow">탐구 결과 종합 피드백</span><h2>세 단계 탐구를 함께 돌아봅시다.</h2><p>각 탐구에서 작성한 답변과 관찰 내용을 순서대로 확인해봅시다.</p></div>{!hasResults ? <div className="feedback-empty" role="status"><strong>아직 저장된 탐구 결과가 없습니다.</strong><p>탐구 답변을 작성하고 저장하면 단계별 피드백이 표시됩니다.</p></div> : <div className="feedback-card-list">{stages.map(({ stage, record, feedback: stageFeedback }) => { const safe = stageFeedback ?? fallback(stage); return <article className="feedback-card" key={stage}><span className="eyebrow">{stage}단계 탐구</span><h3>탐구 질문</h3><p>{record ? explorationPrompts[record.path].question : "아직 저장된 탐구 결과가 없습니다."}</p>{record && <><h3>학생의 서술형 답변</h3><p className="student-response">{record.responseText}</p><p className="coefficient-snapshot">현재 계수 · a={record.coefficientSnapshot.a}, b={record.coefficientSnapshot.b}, c={record.coefficientSnapshot.c}</p></>}<h3>잘한 점</h3><ul>{safe.strengths.map((item) => <li key={item}>{item}</li>)}</ul><h3>보완할 점</h3><ul>{safe.improvements.map((item) => <li key={item}>{item}</li>)}</ul><h3>다시 생각해볼 질문</h3><p>{safe.nextQuestion}</p><h3>최종 미션 힌트</h3><p>{safe.hint ?? "최종 미션 전에 핵심 개념을 다시 확인해보세요."}</p></article>; })}</div>}<section className="feedback-card feedback-summary"><h3>이번 탐구에서 발견한 점</h3><ul><li>a는 그래프의 볼록한 방향과 폭에 영향을 줍니다. a가 양수이면 그래프는 아래로 볼록이고, 음수이면 위로 볼록입니다.</li><li>b는 꼭짓점의 위치와 대칭축에 영향을 줍니다.</li><li>c는 y절편에 영향을 줍니다.</li><li>a, b, c와 방향, 폭, 꼭짓점, 대칭축, y절편을 연결한 점을 확인했습니다.</li><li>최종 미션 전에 |a|가 클수록 더 뾰족하고, 작을수록 더 넓어진다는 점을 다시 확인해보세요.</li></ul></section><button className="primary-button" onClick={onNext}>최종 미션 도전하기 <span>→</span></button></div>;
@@ -929,17 +943,35 @@ function ExploreLegacyScreen({ selected, onSelect, onNext }: { selected: string;
   );
 }
 
-function FunctionGraph({ choice }: { choice: GraphChoice }) {
+type GraphRange = { xmin: number; xmax: number; ymin: number; ymax: number };
+let activeFinalGraphRange: GraphRange | null = null;
+
+function calculateGraphRange(choices: GraphChoice[]): GraphRange {
+  const xValues = choices.flatMap((choice) => [0, choice.vertex.x]);
+  const xMin = Math.min(...xValues) - 2;
+  const xMax = Math.max(...xValues) + 2;
+  const sampleXValues = choices.flatMap((choice) => [0, choice.vertex.x - 2, choice.vertex.x, choice.vertex.x + 2]);
+  const yValues = choices.flatMap((choice) => sampleXValues.map((x) => choice.a * x * x + choice.b * x + choice.c));
+  const yMin = Math.min(0, ...yValues, ...choices.map((choice) => choice.vertex.y), ...choices.map((choice) => choice.yIntercept)) - 1;
+  const yMax = Math.max(0, ...yValues, ...choices.map((choice) => choice.vertex.y), ...choices.map((choice) => choice.yIntercept)) + 1;
+  const centerX = (xMin + xMax) / 2;
+  const centerY = (yMin + yMax) / 2;
+  const span = Math.max(8, Math.ceil(Math.max(xMax - xMin, yMax - yMin) / 2) * 2);
+  return { xmin: centerX - span / 2, xmax: centerX + span / 2, ymin: centerY - span / 2, ymax: centerY + span / 2 };
+}
+
+function FunctionGraph({ choice, range = activeFinalGraphRange ?? calculateGraphRange([choice]) }: { choice: GraphChoice; range?: GraphRange }) {
   const plotLeft = 30;
   const plotTop = 12;
   const plotSize = 204;
-  const domainMin = -6;
-  const domainMax = 6;
-  const gridValues = Array.from({ length: 13 }, (_, index) => domainMin + index);
+  const domainMin = range.xmin;
+  const domainMax = range.xmax;
+  const gridValues = Array.from({ length: Math.round(domainMax - domainMin) + 1 }, (_, index) => domainMin + index);
   const labelValues = [-4, -2, 0, 2, 4];
-  const points = Array.from({ length: 97 }, (_, index) => domainMin + index * 0.125).map((x) => [x, choice.a * x * x + choice.b * x + choice.c]);
-  const toX = (x: number) => plotLeft + ((x - domainMin) / (domainMax - domainMin)) * plotSize;
-  const toY = (y: number) => plotTop + ((domainMax - y) / (domainMax - domainMin)) * plotSize;
+  const visibleLabelValues = labelValues.filter((value) => value >= range.xmin && value <= range.xmax && value >= range.ymin && value <= range.ymax);
+  const points = Array.from({ length: 121 }, (_, index) => range.xmin + index * ((range.xmax - range.xmin) / 120)).map((x) => [x, choice.a * x * x + choice.b * x + choice.c]);
+  const toX = (x: number) => plotLeft + ((x - range.xmin) / (range.xmax - range.xmin)) * plotSize;
+  const toY = (y: number) => plotTop + ((range.ymax - y) / (range.ymax - range.ymin)) * plotSize;
   const path = points.map(([x, y], index) => `${index === 0 ? "M" : "L"}${toX(x).toFixed(1)},${toY(y).toFixed(1)}`).join(" ");
   const clipId = `function-graph-clip-${choice.id}`;
   return <svg className="function-graph" viewBox="0 0 240 240" role="img" aria-label={`${choice.formula} 그래프`}>
@@ -948,8 +980,8 @@ function FunctionGraph({ choice }: { choice: GraphChoice }) {
     {gridValues.map((value) => <line key={`horizontal-${value}`} x1={plotLeft} y1={toY(value)} x2={plotLeft + plotSize} y2={toY(value)} className={value % 2 === 0 ? "function-grid major" : "function-grid"} />)}
     <line x1={plotLeft} y1={toY(0)} x2={plotLeft + plotSize} y2={toY(0)} className="function-axis" />
     <line x1={toX(0)} y1={plotTop} x2={toX(0)} y2={plotTop + plotSize} className="function-axis" />
-    {labelValues.map((value) => <g key={`x-label-${value}`}><line x1={toX(value)} y1={toY(0) - 3} x2={toX(value)} y2={toY(0) + 3} className="function-tick" /><text x={toX(value)} y={toY(0) + 17} className="function-label" textAnchor="middle">{value}</text></g>)}
-    {labelValues.map((value) => <g key={`y-label-${value}`}><line x1={toX(0) - 3} y1={toY(value)} x2={toX(0) + 3} y2={toY(value)} className="function-tick" /><text x={toX(0) - 8} y={toY(value) + 4} className="function-label" textAnchor="end">{value}</text></g>)}
+    {visibleLabelValues.map((value) => <g key={`x-label-${value}`}><line x1={toX(value)} y1={toY(0) - 3} x2={toX(value)} y2={toY(0) + 3} className="function-tick" /><text x={toX(value)} y={toY(0) + 17} className="function-label" textAnchor="middle">{value}</text></g>)}
+    {visibleLabelValues.map((value) => <g key={`y-label-${value}`}><line x1={toX(0) - 3} y1={toY(value)} x2={toX(0) + 3} y2={toY(value)} className="function-tick" /><text x={toX(0) - 8} y={toY(value) + 4} className="function-label" textAnchor="end">{value}</text></g>)}
     <g clipPath={`url(#${clipId})`}><path d={path} className="function-curve" /></g>
   </svg>;
 }
@@ -966,6 +998,8 @@ function FinalChallengeScreen({ question, selected, feedback, attempts, done, on
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const selectedChoice = question.graphChoices.find((choice) => choice.id === selected);
+  activeFinalGraphRange = calculateGraphRange(question.graphChoices);
+  question.graphChoices.sort((left, right) => Number(left.id.replace("choice-", "")) - Number(right.id.replace("choice-", "")));
 
   const submit = async () => {
     if (!selectedChoice || submitting) return;
