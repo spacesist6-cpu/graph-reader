@@ -5,7 +5,7 @@ import { aggregateExplorationFeedback, checkSupabaseConnection, loadExplorationR
 import { createDiagnosisQuestions } from "../lib/diagnosis/questions";
 import { createFinalChallengeQuestion, type FinalChallengeQuestion } from "../lib/final-challenge/questions";
 
-type Step = "start" | "diagnosis" | "explore" | "checkpoint" | "feedback" | "challenge" | "complete";
+type Step = "start" | "diagnosis" | "diagnosis-feedback" | "explore" | "checkpoint" | "feedback" | "challenge" | "complete";
 
 const graphOptions = [
   { id: "A", title: "1단계 탐구 그래프", formula: "y = x²", note: "아래로 볼록, 꼭짓점은 (0, 0)" },
@@ -444,7 +444,7 @@ export default function Home() {
   };
 
   const progress = useMemo(
-    () => ({ start: 0, diagnosis: 25, explore: 50, checkpoint: 58, feedback: 70, challenge: 82, complete: 100 })[step],
+    () => ({ start: 0, diagnosis: 25, "diagnosis-feedback": 37, explore: 50, checkpoint: 58, feedback: 70, challenge: 82, complete: 100 })[step],
     [step],
   );
 
@@ -507,7 +507,7 @@ export default function Home() {
 
   const goNext = () => {
     if (step === "start") setStep("diagnosis");
-    else if (step === "diagnosis") setStep("explore");
+    else if (step === "diagnosis-feedback") setStep("explore");
     else if (step === "feedback") setStep("challenge");
     else if (step === "challenge" && challengeDone) { setCompletedAt(new Date().toISOString()); setStep("complete"); }
   };
@@ -563,7 +563,8 @@ export default function Home() {
 
       <section className="content">
         {step === "start" && <StudentCodeStartScreenV2 onStart={startSession} />}
-        {step === "diagnosis" && <DiagnosisScreen questions={diagnosisQuestions} index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const correctCount = Object.values(nextResults).filter(Boolean).length; const path = assignPath(correctCount); if (process.env.NODE_ENV !== "production") { console.info("[diagnosis] completed", { resultCount: Object.keys(nextResults).length, correctCount, expectedQuestionCount: diagnosisQuestions.length, assignedPath: path }); } const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("explore"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
+        {step === "diagnosis" && <DiagnosisScreen questions={diagnosisQuestions} index={diagnosisIndex} answers={diagnosisAnswers} results={diagnosisResults} responseTimes={responseTimes} shownAtByQuestion={shownAtByQuestion} onQuestionShown={(questionId, shownAt) => setShownAtByQuestion((current) => current[questionId] ? current : { ...current, [questionId]: shownAt })} onSubmit={(question, answer, submittedAt, responseTimeMs, isCorrect) => { const nextAnswers = { ...diagnosisAnswers, [question.id]: { answer, shownAt: shownAtByQuestion[question.id] ?? submittedAt, submittedAt } }; const nextResults = { ...diagnosisResults, [question.id]: isCorrect }; const nextTimes = { ...responseTimes, [question.id]: responseTimeMs }; setDiagnosisAnswers(nextAnswers); setDiagnosisResults(nextResults); setResponseTimes(nextTimes); if (diagnosisIndex === diagnosisQuestions.length - 1) { const correctCount = Object.values(nextResults).filter(Boolean).length; const path = assignPath(correctCount); if (process.env.NODE_ENV !== "production") { console.info("[diagnosis] completed", { resultCount: Object.keys(nextResults).length, correctCount, expectedQuestionCount: diagnosisQuestions.length, assignedPath: path }); } const now = new Date().toISOString(); setCurrentPath(path); setAssignedAt(now); setStep("diagnosis-feedback"); } else { setDiagnosisIndex((current) => current + 1); } }} />}
+        {step === "diagnosis-feedback" && <DiagnosisFeedbackScreen questions={diagnosisQuestions} answers={diagnosisAnswers} results={diagnosisResults} onNext={goNext} />}
         {step === "explore" && <ExploreScreen selected={currentPath ?? "A"} savedResults={explorationResults[currentPath ?? "A"]} onSave={saveExploration} />}
         {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} />}
         {step === "feedback" && <ExplorationFeedbackScreen results={explorationResults} feedback={explorationFeedback} onNext={goNext} />}
@@ -675,6 +676,29 @@ function StartScreen({ onNext }: { onNext: () => void }) {
       </div>
     </div>
   );
+}
+
+const diagnosisFeedbackCopy: Record<DiagnosisQuestion["questionType"], { title: string; concept: string; guidance: string; question: string }> = {
+  direction: { title: "그래프의 볼록한 방향을 다시 확인해보세요.", concept: "a의 부호와 그래프의 볼록한 방향", guidance: "a가 양수이면 그래프는 아래로 볼록이고, a가 음수이면 위로 볼록입니다.", question: "a의 부호가 바뀌면 그래프의 방향은 어떻게 달라질까요?" },
+  width: { title: "a의 절댓값과 그래프의 폭을 다시 확인해보세요.", concept: "|a|와 그래프의 폭", guidance: "|a|가 클수록 그래프는 더 좁고 뾰족해지고, |a|가 작을수록 더 넓어집니다.", question: "y=x²와 y=3x² 중 어느 그래프가 더 좁게 보일까요?" },
+  axis: { title: "대칭축 공식을 다시 확인해보세요.", concept: "b와 대칭축 또는 꼭짓점의 x좌표", guidance: "이차함수 y=ax²+bx+c의 대칭축은 x=-b/(2a)입니다.", question: "식에서 a와 b를 찾아 공식에 대입해보세요." },
+  intercept: { title: "c와 y절편의 관계를 다시 확인해보세요.", concept: "c와 y절편", guidance: "x=0을 대입하면 y=c가 되므로 c는 y절편입니다.", question: "함수식에 x=0을 대입하면 y값은 무엇이 될까요?" },
+  relationship: { title: "a, b, c가 그래프에 미치는 영향을 연결해보세요.", concept: "a, b, c와 그래프의 종합 관계", guidance: "a는 볼록한 방향과 폭, b는 꼭짓점과 대칭축의 위치, c는 y절편에 영향을 줍니다.", question: "각 계수를 하나씩 바꾸면 그래프의 어떤 특징이 달라질까요?" },
+};
+
+function DiagnosisFeedbackScreen({ questions, answers, results, onNext }: {
+  questions: DiagnosisQuestion[];
+  answers: Record<string, { answer: string; shownAt: string; submittedAt: string }>;
+  results: Record<string, boolean>;
+  onNext: () => void;
+}) {
+  const wrongQuestions = questions.filter((question) => results[question.id] === false);
+  const allCorrect = wrongQuestions.length === 0 && questions.every((question) => results[question.id] === true);
+  return <div className="question-page diagnosis-feedback-page">
+    <div className="section-intro"><span className="eyebrow">진단 결과 피드백</span><h2>{allCorrect ? "진단을 잘 마쳤어요!" : "진단 결과를 함께 돌아볼까요?"}</h2><p>{allCorrect ? "이차함수의 기본 개념을 잘 이해하고 있습니다." : "틀린 문항을 중심으로 핵심 개념을 다시 확인해봅시다."}</p></div>
+    {allCorrect ? <article className="feedback-card diagnosis-all-correct"><h3>이제 그래프의 변화를 탐구해볼까요?</h3><p>a: 그래프의 볼록한 방향과 폭</p><p>b: 꼭짓점과 대칭축의 위치</p><p>c: y절편</p><p>이제 계수 a, b, c를 움직이며 그래프의 변화를 탐구해볼까요?</p></article> : <div className="feedback-card-list">{wrongQuestions.map((question) => { const copy = diagnosisFeedbackCopy[question.questionType]; const selectedLabel = question.choices.find((choice) => choice.id === answers[question.id]?.answer)?.label ?? "선택한 답을 확인할 수 없습니다."; return <article className="feedback-card" key={question.id}><span className="eyebrow">확인할 문항</span><h3>{copy.title}</h3><p><strong>문항</strong><br />{question.prompt}</p><p><strong>학생이 선택한 답</strong><br />{selectedLabel}</p><p><strong>확인할 개념</strong><br />{copy.concept}</p><p><strong>기본 피드백</strong><br />{copy.guidance}</p><p><strong>다시 생각해볼 질문</strong><br />{copy.question}</p></article>; })}</div>}
+    <button className="primary-button" onClick={onNext}>그래프 탐구 시작하기 <span>→</span></button>
+  </div>;
 }
 
 function DiagnosisScreen({ questions, index, answers, shownAtByQuestion, onQuestionShown, onSubmit, onDevPath }: {
