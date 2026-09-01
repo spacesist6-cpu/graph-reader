@@ -9,11 +9,11 @@ export async function POST(request: Request) {
   }
 
   try {
-    const body = await request.json() as { studentCode?: string };
+    const body = await request.json() as { studentCode?: string; className?: string };
     const response = await fetch(`${url}/rest/v1/rpc/start_learning_session`, {
       method: "POST",
       headers: { apikey: publishableKey, Authorization: `Bearer ${publishableKey}`, "content-type": "application/json" },
-      body: JSON.stringify({ p_student_code: body.studentCode ?? "" }),
+      body: JSON.stringify({ p_student_code: body.studentCode ?? "", p_class_name: body.className ?? "" }),
       cache: "no-store",
     });
     const responseText = await response.text();
@@ -25,12 +25,12 @@ export async function POST(request: Request) {
     }
 
     const rows = JSON.parse(responseText) as Array<{ student_profile_id: string; session_id: string; student_code: string; started_at: string }>;
-    const session = rows[0];
+    const session = rows[0] as { student_profile_id: string; session_id: string; student_code: string; class_name: string; started_at: string } | undefined;
     if (!session?.session_id) {
       return Response.json({ ok: false, message: "학습 기록을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.", error: { message: "세션 ID가 반환되지 않았습니다." } }, { status: 502 });
     }
 
-    return Response.json({ ok: true, message: "학습 세션이 시작되었습니다.", session: { studentProfileId: session.student_profile_id, sessionId: session.session_id, studentCode: session.student_code, startedAt: session.started_at } });
+    return Response.json({ ok: true, message: "학습 세션이 시작되었습니다.", session: { studentProfileId: session.student_profile_id, sessionId: session.session_id, studentCode: session.student_code, className: session.class_name, startedAt: session.started_at } });
   } catch (error) {
     return Response.json({ ok: false, message: "학습 기록을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.", error: { message: error instanceof Error ? error.message : String(error) } }, { status: 502 });
   }

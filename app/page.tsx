@@ -34,7 +34,8 @@ type QuadraticValues = { a: number; b: number; c: number };
 type PathId = "A" | "B" | "C";
 type CoefficientChange = QuadraticValues & { path: PathId; changedAt: string };
 type ExplorationRecord = { path: PathId; promptId: string; responseText: string; coefficientSnapshot: QuadraticValues; writtenAt: string };
-type LearningSession = { studentCode: string; sessionId: string; startedAt: string };
+type LearningSession = { studentCode: string; sessionId: string; startedAt: string; className: string };
+const CLASS_OPTIONS = ["4반", "5반", "6반", "11반", "12반", "13반"] as const;
 const SESSION_STORAGE_KEY = "graph-reader-learning-session";
 let currentLearningSessionId = "";
 type ExplorationPrompt = { promptId: string; question: string; support: string };
@@ -313,6 +314,7 @@ function ExplorationResponsePanel({ prompt, responseText, onResponseChange, save
 export default function Home() {
   const [step, setStep] = useState<Step>("start");
   const [studentCode, setStudentCode] = useState("");
+  const [className, setClassName] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [startedAt, setStartedAt] = useState("");
   const [completedAt, setCompletedAt] = useState("");
@@ -365,6 +367,7 @@ export default function Home() {
             }
           }
           setStudentCode(session.studentCode);
+          setClassName(session.className ?? "");
           setSessionId(session.sessionId);
           currentLearningSessionId = session.sessionId;
           setStartedAt(session.startedAt);
@@ -395,7 +398,7 @@ export default function Home() {
   useEffect(() => {
     if (!sessionHydrated || !studentCode || !sessionId || !startedAt) return;
     window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(getPersistedSession()));
-  }, [sessionHydrated, studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone]);
+  }, [sessionHydrated, studentCode, className, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone]);
 
   useEffect(() => {
     if (!sessionHydrated || !sessionId) return;
@@ -416,16 +419,17 @@ export default function Home() {
   }, [sessionHydrated, sessionId]);
 
   function getPersistedSession() {
-    return { studentCode, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
+    return { studentCode, className, sessionId, startedAt, completedAt, step, diagnosisIndex, diagnosisAnswers, diagnosisResults, responseTimes, shownAtByQuestion, currentPath, assignedAt, explorationResults, explorationFeedback, finalChoiceId, finalFeedback, finalAttempts, challengeDone };
   }
 
-  const startSession = async (value: string) => {
+  const startSession = async (value: string, selectedClass: string) => {
     const normalized = value.trim().toUpperCase();
     if (!/^[A-Z0-9]{4,12}$/.test(normalized)) return { ok: false, message: "학습 코드를 확인해주세요." };
-    const result = await startLearningSession(normalized);
+    const result = await startLearningSession(normalized, selectedClass);
     if (!result.ok || !result.session) return result;
     window.localStorage.removeItem(SESSION_STORAGE_KEY);
     setStudentCode(result.session.studentCode);
+    setClassName(result.session.className);
     setSessionId(result.session.sessionId);
     currentLearningSessionId = result.session.sessionId;
     setStartedAt(result.session.startedAt);
@@ -576,7 +580,7 @@ export default function Home() {
         {step === "checkpoint" && <CheckpointScreen path={currentPath ?? "A"} studentCode={studentCode} sessionId={sessionId} onAdvance={() => void advanceFromCheckpoint()} />}
         {step === "feedback" && <ExplorationFeedbackScreen results={explorationResults} feedback={explorationFeedback} onNext={goNext} />}
         {step === "challenge" && <FinalChallengeScreen question={finalQuestion} selected={finalChoiceId} feedback={finalFeedback} attempts={finalAttempts} done={challengeDone} onSelect={(choice) => { setFinalChoiceId(choice.id); setFinalFeedback(null); setChallengeDone(false); }} onSubmit={submitFinalChallenge} onRetry={() => { setFinalChoiceId(null); setFinalFeedback(null); setChallengeDone(false); }} />}
-        {step === "complete" && <CompleteScreen studentCode={studentCode} sessionId={sessionId} completedAt={completedAt} fallbackRecords={localReviewRecords} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
+        {step === "complete" && <CompleteScreen studentCode={studentCode} sessionId={sessionId} completedAt={completedAt} fallbackRecords={localReviewRecords} onRestart={() => { window.localStorage.removeItem(SESSION_STORAGE_KEY); setStep("start"); setStudentCode(""); setClassName(""); setSessionId(""); setStartedAt(""); setCompletedAt(""); setDiagnosisIndex(0); setDiagnosisAnswers({}); setDiagnosisResults({}); setResponseTimes({}); setShownAtByQuestion({}); setCurrentPath(null); setAssignedAt(null); setExplorationResults({ A: [], B: [], C: [] }); setExplorationFeedback(null); setFinalChoiceId(null); setFinalFeedback(null); setFinalAttempts(0); setChallengeDone(false); }} />}
       </section>
 
       <footer>학습 기록은 현재 이 브라우저에서만 임시로 유지됩니다 · 저장 기능은 다음 단계에서 연결할 예정이에요.</footer>
@@ -612,8 +616,9 @@ function SupabaseConnectionCheck() {
   return <div className="supabase-check"><button type="button" className="supabase-check-button" onClick={checkConnection} disabled={status === "checking"}>Supabase 연결 확인</button>{message && <p className={`supabase-check-message ${status}`} role="status">{message}</p>}</div>;
 }
 
-function StudentCodeStartScreenV2({ onStart }: { onStart: (code: string) => Promise<{ ok: boolean; message: string; error?: { message?: string; code?: string; details?: string; hint?: string } }> }) {
+function StudentCodeStartScreenV2({ onStart }: { onStart: (code: string, className: string) => Promise<{ ok: boolean; message: string; error?: { message?: string; code?: string; details?: string; hint?: string } }> }) {
   const [code, setCode] = useState("");
+  const [className, setClassName] = useState("");
   const [error, setError] = useState("");
   const [debugError, setDebugError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -623,10 +628,11 @@ function StudentCodeStartScreenV2({ onStart }: { onStart: (code: string) => Prom
   const submit = async () => {
     if (!normalized) { setError("학습 코드를 입력해주세요."); return; }
     if (!isValid) { setError("영문 대문자와 숫자를 조합해 4~12자로 입력해주세요."); return; }
+    if (!className) { setError("학급을 선택해주세요."); return; }
     setSaving(true);
     setError("");
     setDebugError("");
-    const result = await onStart(normalized);
+    const result = await onStart(normalized, className);
     if (!result.ok) {
       setError("학습 기록을 시작하지 못했습니다. 잠시 후 다시 시도해주세요.");
       if (process.env.NODE_ENV !== "production") setDebugError([result.error?.message, result.error?.code, result.error?.details, result.error?.hint].filter(Boolean).join(" | "));
@@ -634,7 +640,7 @@ function StudentCodeStartScreenV2({ onStart }: { onStart: (code: string) => Prom
     setSaving(false);
   };
 
- return <div className="hero-grid"><div className="hero-copy"><span className="eyebrow">오늘의 맞춤 미션 · 10분</span><h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1><p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p><div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><a className="leader-link inline-block cursor-pointer px-0.5 py-1 -mx-0.5 -my-1 no-underline hover:text-[var(--blue)] focus-visible:outline-2 focus-visible:outline-[var(--blue)] focus-visible:outline-offset-2" href="/teacher/login"><strong>Leader</strong></a> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div><div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} />{error && <span className="student-code-error" role="alert">{error}</span>}{debugError && <span className="student-code-debug" role="status">개발 오류: {debugError}</span>}<button className="primary-button" onClick={() => void submit()} disabled={saving}>{saving ? "학습 기록 저장 중..." : "학습 시작하기"} <span>→</span></button><DetailedSupabaseConnectionCheck /></div></div><div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div></div>;
+ return <div className="hero-grid"><div className="hero-copy"><span className="eyebrow">오늘의 맞춤 미션 · 10분</span><h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1><p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p><div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><a className="leader-link inline-block cursor-pointer px-0.5 py-1 -mx-0.5 -my-1 no-underline hover:text-[var(--blue)] focus-visible:outline-2 focus-visible:outline-[var(--blue)] focus-visible:outline-offset-2" href="/teacher/login"><strong>Leader</strong></a> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div><div className="student-code-form"><label htmlFor="student-class">학급을 선택하세요</label><select id="student-class" value={className} onChange={(event) => { setClassName(event.target.value); setError(""); }}><option value="">학급 선택</option>{CLASS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}</select><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} />{error && <span className="student-code-error" role="alert">{error}</span>}{debugError && <span className="student-code-debug" role="status">개발 오류: {debugError}</span>}<button className="primary-button" onClick={() => void submit()} disabled={saving}>{saving ? "학습 기록 저장 중..." : "학습 시작하기"} <span>→</span></button><DetailedSupabaseConnectionCheck /></div></div><div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div></div>;
   return <div className="hero-grid"><div className="hero-copy"><span className="eyebrow">오늘의 맞춤 미션 · 10분</span><h1>계수를 읽고,<br /><em>그래프를 이끌어</em>보세요.</h1><p>계수를 읽으면 그래프가 보이고,<br />계수를 바꾸면 그래프의 변화가 보입니다.</p><div className="reader-leader-guide"><p><strong>Reader</strong> · a, b, c가 그래프에 어떤 영향을 주는지 읽어봅니다.</p><p><a className="leader-link inline-block cursor-pointer px-0.5 py-1 -mx-0.5 -my-1 no-underline hover:text-[var(--blue)] focus-visible:outline-2 focus-visible:outline-[var(--blue)] focus-visible:outline-offset-2" href="/teacher/login"><strong>Leader</strong></a> · a, b, c를 직접 바꾸며 그래프의 변화를 이끌어봅니다.</p></div><div className="student-code-form"><label htmlFor="student-code">학습 코드를 입력하세요</label><p>선생님에게 받은 학습 코드를 입력하면 학습 기록이 저장됩니다.</p><input id="student-code" value={code} maxLength={12} placeholder="예) A20301" autoCapitalize="characters" onChange={(event) => { setCode(event.target.value.toUpperCase()); setError(""); }} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} />{error && <span className="student-code-error" role="alert">{error}</span>}{debugError && <span className="student-code-debug" role="status">개발 오류: {debugError}</span>}<button className="primary-button" onClick={() => void submit()} disabled={saving}>{saving ? "학습 기록 저장 중..." : "학습 시작하기"} <span>→</span></button><DetailedSupabaseConnectionCheck /></div></div><div className="start-art"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="star star-one">✦</div><div className="star star-two">✧</div><div className="graph-card-decoration"><span>GeoGebra</span><strong>정확한 그래프를<br />곧 만나요</strong></div><div className="floating-note">그래프를<br /><strong>움직여보세요</strong> <span>↗</span></div></div></div>;
 }
 

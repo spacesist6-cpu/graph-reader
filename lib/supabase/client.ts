@@ -12,7 +12,7 @@ export type SupabaseConnectionResult = {
 export type LearningSessionStartResult = {
   ok: boolean;
   message: string;
-  session?: { studentProfileId: string; sessionId: string; studentCode: string; startedAt: string };
+  session?: { studentProfileId: string; sessionId: string; studentCode: string; className: string; startedAt: string };
   error?: { message?: string; code?: string; details?: string; hint?: string };
 };
 
@@ -128,12 +128,12 @@ export async function checkSupabaseConnection(): Promise<SupabaseConnectionResul
   }
 }
 
-export async function startLearningSession(studentCode: string): Promise<LearningSessionStartResult> {
+export async function startLearningSession(studentCode: string, className: string): Promise<LearningSessionStartResult> {
   try {
     const response = await fetch("/api/learning-sessions/start", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ studentCode }),
+      body: JSON.stringify({ studentCode, className }),
       cache: "no-store",
     });
     return await response.json() as LearningSessionStartResult;

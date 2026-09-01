@@ -17,7 +17,7 @@ export async function getTeacherContext(request: Request): Promise<TeacherContex
   return { client, user: data.user };
 }
 
-export type TeacherSession = { id: string; student_id: string | null; student_code: string; started_at: string; status: string; completed_at: string | null };
+export type TeacherSession = { id: string; student_id: string | null; student_code: string; class_name: string | null; started_at: string; status: string; completed_at: string | null };
 export type TeacherDiagnosis = { id: string; session_id: string; question_id: string; question_order: number | null; question_version: string | null; question_parameters: Record<string, unknown> | null; answer: string; is_correct: boolean; shown_at: string | null; submitted_at: string; response_time_ms: number | null };
 export type TeacherCheckpoint = { id: string; session_id: string; path: string; question_id: string; question_version: string; question_parameters: Record<string, unknown>; student_answer: string; is_correct: boolean; response_time_ms: number; attempt_number: number; submitted_at: string };
 export type TeacherExploration = { id: string; session_id: string; path: string; prompt_id: string; response_text: string; coefficient_snapshot: { a?: number; b?: number; c?: number } | null; ai_feedback: Record<string, unknown> | null; feedback_status: string | null; feedback_created_at: string | null };
@@ -31,7 +31,7 @@ const query = async <T>(promise: PromiseLike<{ data: T | null; error: { message:
 };
 
 export async function loadTeacherData(client: SupabaseClient, sessionId?: string): Promise<TeacherData> {
-  const sessionsQuery = client.from("learning_sessions").select("id, student_id, student_code, started_at, status, completed_at").order("started_at", { ascending: false });
+  const sessionsQuery = client.from("learning_sessions").select("id, student_id, student_code, class_name, started_at, status, completed_at").order("started_at", { ascending: false });
   const diagnosesQuery = client.from("diagnosis_responses").select("id, session_id, question_id, question_order, question_version, question_parameters, answer, is_correct, shown_at, submitted_at, response_time_ms").order("submitted_at", { ascending: true });
   const checkpointsQuery = client.from("checkpoint_attempts").select("id, session_id, path, question_id, question_version, question_parameters, student_answer, is_correct, response_time_ms, attempt_number, submitted_at").order("submitted_at", { ascending: true });
   const explorationsQuery = client.from("exploration_results").select("id, session_id, path, prompt_id, response_text, coefficient_snapshot, ai_feedback, feedback_status, feedback_created_at").order("feedback_created_at", { ascending: true });
